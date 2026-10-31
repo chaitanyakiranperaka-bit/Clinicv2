@@ -23,7 +23,7 @@ BACKCHANNELS = {
 }
 
 NOISE_WORDS = {
-    "", ".", "you", "um", "uh", "cough", "throat", "clears throat"
+    "", ".", "um", "uh", "cough", "throat", "clears throat", "blank_audio"
 }
 
 def clean_whisper_text(text: str) -> str:
@@ -188,9 +188,10 @@ async def call_websocket(websocket: WebSocket):
             return
 
         # 2. Check if passive conversational backchannel ("uh-huh", "mhm")
-        if is_backchannel(user_text):
-            print(f"[Patient Backchannel]: '{user_text}' (continuing...)", flush=True)
-            if unspoken_sentences and not is_bot_speaking:
+        # ONLY treat as backchannel if the bot was mid-speech and still has unspoken sentences to finish!
+        if unspoken_sentences and is_backchannel(user_text):
+            print(f"[Patient Backchannel]: '{user_text}' (resuming bot speech)", flush=True)
+            if not is_bot_speaking:
                 asyncio.create_task(resume_unspoken())
             return
 
@@ -201,10 +202,11 @@ async def call_websocket(websocket: WebSocket):
         # Discard previous bot sentences since caller has responded or changed topic
         unspoken_sentences = []
 
-        # Cancel any previous pending task if it was still running
-        if current_turn_task and not current_turn_task.done():
+        # Cancel any previous task ONLY if it is a DIFFERENT task than this one
+        my_task = asyncio.current_task()
+        if current_turn_task and current_turn_task is not my_task and not current_turn_task.done():
             current_turn_task.cancel()
-            current_turn_task = None
+        current_turn_task = my_task
 
         messages.append({"role": "user", "content": [{"text": user_text}]})
         is_processing_turn = True
@@ -220,7 +222,7 @@ async def call_websocket(websocket: WebSocket):
                 on_tool_start=handle_tool_start
             )
 
-            if reply_text and not asyncio.current_task().cancelled():
+            if reply_text and not my_task.cancelled():
                 await speak_text(reply_text)
 
         except asyncio.CancelledError:
@@ -228,6 +230,8 @@ async def call_websocket(websocket: WebSocket):
         except Exception as e:
             print(f"[Turn Processing Error]: {e}", flush=True)
         finally:
+            if current_turn_task is my_task:
+                current_turn_task = None
             is_processing_turn = False
             vad_model.reset_states()
 
