@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime, timedelta
 from config import DUBLIN_TZ, GOOGLE_CALENDAR_ID, SERVICE_ACCOUNT_FILE, CLINICIANS, ALL_DAILY_SLOTS
 
@@ -101,20 +102,54 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
     morning = [s for s in free_slots if int(s.split(":")[0]) < 13]
     afternoon = [s for s in free_slots if int(s.split(":")[0]) >= 13]
 
-    pref = (time_preference or "any").lower()
-    if "morning" in pref:
+    pref = (time_preference or "any").lower().strip()
+
+    # Check if a specific time or hour is requested (e.g. "10:00", "10", "10am", "2pm", "14:30")
+    time_match = re.search(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", pref)
+    target_slot = None
+    if time_match and "morning" not in pref and "afternoon" not in pref:
+        hour = int(time_match.group(1))
+        minute = int(time_match.group(2)) if time_match.group(2) else 0
+        ampm = time_match.group(3)
+        if ampm == "pm" and hour < 12:
+            hour += 12
+        elif ampm == "am" and hour == 12:
+            hour = 0
+        target_slot = f"{hour:02d}:{minute:02d}"
+
+    if target_slot:
+        exact_available = target_slot in free_slots
+
+        def distance(s):
+            h, m = map(int, s.split(":"))
+            th, tm = map(int, target_slot.split(":"))
+            return abs((h * 60 + m) - (th * 60 + tm))
+
+        closest = sorted(free_slots, key=distance)[:3]
+        suggested = sorted(closest)
+        status_msg = (
+            f"{target_slot} is AVAILABLE."
+            if exact_available
+            else f"{target_slot} is NOT available. Closest open times are: {', '.join(suggested)}."
+        )
+    elif "morning" in pref:
         suggested = morning[:3] if morning else afternoon[:3]
+        status_msg = f"Available morning slots: {', '.join(suggested)}"
     elif "afternoon" in pref:
         suggested = afternoon[:3] if afternoon else morning[:3]
+        status_msg = f"Available afternoon slots: {', '.join(suggested)}"
     else:
         suggested = (morning[:2] + afternoon[:2]) if (morning and afternoon) else free_slots[:3]
+        status_msg = f"Available slots: {', '.join(suggested)}"
 
     return {
         "status": "success",
         "clinician": clinician,
         "date": date_str,
         "suggested_slots_to_quote": suggested,
-        "instruction": "Speak 2 or 3 of these times to the patient now."
+        "all_open_slots": free_slots,
+        "availability_summary": status_msg,
+        "instruction": "Speak these times to the patient accurately. If their requested time is available, confirm it."
     }
 
 def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_name: str, patient_dob: str, caller_phone: str, appointment_category: str) -> dict:

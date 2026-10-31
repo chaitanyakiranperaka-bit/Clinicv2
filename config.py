@@ -26,14 +26,14 @@ BEDROCK_TOOLS = {
         {
             "toolSpec": {
                 "name": "check_calendar_slots",
-                "description": "Call this tool whenever checking what appointment times are available. Never invent times without calling this tool.",
+                "description": "Call this tool whenever checking what appointment times are available, OR when patient asks for a specific time/time of day (e.g. 'Do you have 10:00?', 'What about afternoon?'). Always call this tool to verify availability rather than assuming from previous answers.",
                 "inputSchema": {
                     "json": {
                         "type": "object",
                         "properties": {
                             "clinician": {"type": "string", "enum": ["Dr. Yousuf", "Dentist Shailaja", "Nurse Kelly"]},
                             "date": {"type": "string", "description": "Date in YYYY-MM-DD format."},
-                            "time_preference": {"type": "string", "description": "'morning', 'afternoon', or 'any'"}
+                            "time_preference": {"type": "string", "description": "Specific time requested (e.g. '10:00', '14:30', '10am') or general preference ('morning', 'afternoon', 'any')."}
                         },
                         "required": ["clinician", "date"]
                     }
@@ -104,7 +104,7 @@ def build_system_prompt(caller_phone: str) -> str:
         f"- Operating Hours: Monday to Saturday 09:00 to 17:00. The clinic is CLOSED on Sundays (direct urgent issues to D-Doc/K-Doc).\n"
         f"- Caller Context: {caller_ctx}\n\n"
         "CLINICAL & FUNCTION-CALLING RULES:\n"
-        "1. AVAILABILITY: When patient asks for an appointment, invoke `check_calendar_slots`. Quote 2 or 3 returned times.\n"
+        "1. AVAILABILITY: When patient asks for an appointment or a specific/different time (e.g. 'Do you have 10:00?', 'What about afternoon?'), ALWAYS invoke `check_calendar_slots` with their requested time or preference. Never assume or claim a time is unavailable without calling the tool.\n"
         "2. BOOKING: When patient agrees to a time, invoke `book_calendar_slot`. Do NOT claim an appointment is confirmed in text without calling the tool.\n"
         "3. RED FLAGS: If patient reports chest pain, breathlessness, stroke signs (FAST), or heavy bleeding, call `trigger_emergency_divert` and say: "
         "'This sounds like an emergency. Please hang up immediately and dial 999 or 112 for an ambulance.'\n"
