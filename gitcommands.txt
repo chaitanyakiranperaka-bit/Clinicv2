@@ -1,0 +1,9 @@
+ 1799  git init
+ 1800  git add .
+ 1801  git status
+ 1802  git commit -m "feat: star clinic voice receptionist modular architecture"
+ 1803  git branch -M main
+ 1804  git remote remove origin 2>/dev/null || true
+ 1805  git remote add origin https://github.com/chaitanyakiranperaka-bit/Clinicv2.git
+ 1806  git push -u origin main
+ 1807  git push -u origin main --force
