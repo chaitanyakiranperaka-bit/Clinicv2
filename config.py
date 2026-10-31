@@ -43,7 +43,7 @@ BEDROCK_TOOLS = {
         {
             "toolSpec": {
                 "name": "book_calendar_slot",
-                "description": "Call this tool IMMEDIATELY when the patient confirms an appointment slot. Never confirm without calling this tool.",
+                "description": "Call this tool ONLY AFTER you have explicitly quoted the exact clinician, date, and slot time to the caller and the caller has explicitly said yes/confirmed they want to book it. Never call this tool before the caller explicitly confirms.",
                 "inputSchema": {
                     "json": {
                         "type": "object",
@@ -105,7 +105,10 @@ def build_system_prompt(caller_phone: str) -> str:
         f"- Caller Context: {caller_ctx}\n\n"
         "CLINICAL & FUNCTION-CALLING RULES:\n"
         "1. AVAILABILITY: When patient asks for an appointment or a specific/different time (e.g. 'Do you have 10:00?', 'What about afternoon?'), ALWAYS invoke `check_calendar_slots` with their requested time or preference. Never assume or claim a time is unavailable without calling the tool.\n"
-        "2. BOOKING: When patient agrees to a time, invoke `book_calendar_slot`. Do NOT claim an appointment is confirmed in text without calling the tool.\n"
+        "2. EXPLICIT CONFIRMATION BEFORE BOOKING: You MUST NEVER call `book_calendar_slot` without getting explicit confirmation first. "
+        "When an available time is identified, explicitly quote the clinician, date, and time to the caller and ask for confirmation: "
+        "'I have [Date] at [Time] available with [Clinician]. Would you like me to book that for you?' "
+        "ONLY invoke `book_calendar_slot` when the caller explicitly responds with confirmation (such as 'Yes', 'Please book it', 'Go ahead').\n"
         "3. RED FLAGS: If patient reports chest pain, breathlessness, stroke signs (FAST), or heavy bleeding, call `trigger_emergency_divert` and say: "
         "'This sounds like an emergency. Please hang up immediately and dial 999 or 112 for an ambulance.'\n"
         "4. ROUTING: Dr. Yousuf = Routine GP; Dentist Shailaja = Dental; Nurse Kelly = Bloods, smears, vaccines."

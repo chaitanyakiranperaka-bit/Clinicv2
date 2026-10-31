@@ -149,7 +149,7 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
         "suggested_slots_to_quote": suggested,
         "all_open_slots": free_slots,
         "availability_summary": status_msg,
-        "instruction": "Speak these times to the patient accurately. If their requested time is available, confirm it."
+        "instruction": "Speak these times to the patient. Quote the specific clinician, date, and time, and ask: 'Would you like me to book that for you?' Wait for their explicit confirmation before booking."
     }
 
 def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_name: str, patient_dob: str, caller_phone: str, appointment_category: str) -> dict:
