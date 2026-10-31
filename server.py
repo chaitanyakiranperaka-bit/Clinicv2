@@ -18,6 +18,30 @@ app = FastAPI()
 print("[INIT VAD] Loading Silero VAD (CPU)...", flush=True)
 global_vad_model = load_silero_vad()
 
+BACKCHANNELS = {
+    "uh-huh", "uh huh", "mhm", "mm-hmm", "mm", "right", "ah", "got it"
+}
+
+NOISE_WORDS = {
+    "", ".", "you", "um", "uh", "cough", "throat", "clears throat"
+}
+
+def clean_whisper_text(text: str) -> str:
+    """Removes whisper artifacts like [music], (cough) and punctuation."""
+    cleaned = re.sub(r'\[.*?\]|\(.*?\)', '', text).strip()
+    cleaned = re.sub(r'[^\w\s-]', '', cleaned).strip().lower()
+    return cleaned
+
+def is_backchannel(text: str) -> bool:
+    """Detects passive conversational affirmations (uh-huh, mhm) that should not disrupt bot flow."""
+    c = clean_whisper_text(text)
+    return c in BACKCHANNELS
+
+def is_noise_or_empty(text: str) -> bool:
+    """Detects background audio artifacts, coughs, and unvoiced breaths."""
+    c = clean_whisper_text(text)
+    return len(c) < 2 or c in NOISE_WORDS
+
 def split_into_sentences(text: str) -> list:
     """Splits text into sentences while protecting titles (Dr., Mr., etc.) and preserving ?, ! punctuation."""
     if not text:
@@ -80,10 +104,12 @@ async def call_websocket(websocket: WebSocket):
     pcm_fifo = np.array([], dtype=np.float32)
     speech_buffer = []
     in_speech = False
+    speech_streak = 0
     silence_frames = 0
     is_bot_speaking = False
     is_processing_turn = False
     current_turn_task = None
+    unspoken_sentences = []
 
     # Dedicated VAD model instance per connection for state isolation
     try:
@@ -98,19 +124,30 @@ async def call_websocket(websocket: WebSocket):
         except Exception:
             pass
 
+    async def resume_unspoken():
+        """Resumes speaking queued sentences if the caller was only making listening backchannels or noise."""
+        nonlocal is_bot_speaking, unspoken_sentences
+        if not unspoken_sentences or is_bot_speaking:
+            return
+        is_bot_speaking = True
+        while unspoken_sentences and is_bot_speaking:
+            sentence = unspoken_sentences.pop(0)
+            b64_wav = await asyncio.to_thread(tts.synthesize_wav_base64, sentence)
+            if b64_wav and is_bot_speaking:
+                await send_json({"type": "audio", "b64": b64_wav})
+
     async def speak_text(text: str):
-        nonlocal is_bot_speaking
+        nonlocal is_bot_speaking, unspoken_sentences
         text = tts.strip_emojis(text)
         if not text:
             return
         print(f"[Deirdre]: {text}", flush=True)
         await send_json({"type": "transcript", "role": "Deirdre", "text": text})
-        is_bot_speaking = True
         sentences = split_into_sentences(text)
-        for sentence in sentences:
-            if not is_bot_speaking:
-                # Interrupted mid-speech
-                break
+        unspoken_sentences = list(sentences)
+        is_bot_speaking = True
+        while unspoken_sentences and is_bot_speaking:
+            sentence = unspoken_sentences.pop(0)
             b64_wav = await asyncio.to_thread(tts.synthesize_wav_base64, sentence)
             if b64_wav and is_bot_speaking:
                 await send_json({"type": "audio", "b64": b64_wav})
@@ -132,17 +169,47 @@ async def call_websocket(websocket: WebSocket):
             await send_json({"type": "audio", "b64": tts.FILLER_AUDIO_B64})
 
     async def process_user_turn(audio_np: np.ndarray):
-        nonlocal is_processing_turn
+        nonlocal is_processing_turn, current_turn_task, unspoken_sentences
+        # Minimum audio frame check: ~250ms (4000 samples at 16kHz) to filter mic pops
+        if len(audio_np) < 4000:
+            if unspoken_sentences and not is_bot_speaking:
+                asyncio.create_task(resume_unspoken())
+            return
+
+        raw_text = await asyncio.to_thread(stt.transcribe, audio_np)
+        user_text = raw_text.strip()
+
+        # 1. Check if unvoiced noise, cough, breath, or acoustic artifact
+        if is_noise_or_empty(user_text):
+            if user_text:
+                print(f"[Filtered Noise/Artifact]: '{user_text}'", flush=True)
+            if unspoken_sentences and not is_bot_speaking:
+                asyncio.create_task(resume_unspoken())
+            return
+
+        # 2. Check if passive conversational backchannel ("uh-huh", "mhm")
+        if is_backchannel(user_text):
+            print(f"[Patient Backchannel]: '{user_text}' (continuing...)", flush=True)
+            if unspoken_sentences and not is_bot_speaking:
+                asyncio.create_task(resume_unspoken())
+            return
+
+        # 3. Genuine caller speech — user is giving an instruction or answering
+        print(f"[Patient]: {user_text}", flush=True)
+        await send_json({"type": "transcript", "role": "Patient", "text": user_text})
+
+        # Discard previous bot sentences since caller has responded or changed topic
+        unspoken_sentences = []
+
+        # Cancel any previous pending task if it was still running
+        if current_turn_task and not current_turn_task.done():
+            current_turn_task.cancel()
+            current_turn_task = None
+
+        messages.append({"role": "user", "content": [{"text": user_text}]})
         is_processing_turn = True
+
         try:
-            user_text = await asyncio.to_thread(stt.transcribe, audio_np)
-            if not user_text or len(user_text) < 2:
-                return
-
-            print(f"[Patient]: {user_text}", flush=True)
-            await send_json({"type": "transcript", "role": "Patient", "text": user_text})
-            messages.append({"role": "user", "content": [{"text": user_text}]})
-
             reply_text = await llm.execute_turn(
                 messages,
                 system_prompt,
@@ -157,7 +224,7 @@ async def call_websocket(websocket: WebSocket):
                 await speak_text(reply_text)
 
         except asyncio.CancelledError:
-            print("[Turn Cancelled]: Caller barged in.", flush=True)
+            print("[Turn Cancelled]: New caller utterance initiated.", flush=True)
         except Exception as e:
             print(f"[Turn Processing Error]: {e}", flush=True)
         finally:
@@ -172,7 +239,8 @@ async def call_websocket(websocket: WebSocket):
                 if data.get("action") == "hangup":
                     break
                 elif data.get("action") == "playback_finished":
-                    is_bot_speaking = False
+                    if not unspoken_sentences:
+                        is_bot_speaking = False
 
             elif "bytes" in packet:
                 floats = np.frombuffer(packet["bytes"], dtype=np.float32)
@@ -183,31 +251,27 @@ async def call_websocket(websocket: WebSocket):
                     pcm_fifo = pcm_fifo[512:]
 
                     prob = vad_model(torch.from_numpy(window), 16000).item()
-                    if prob > 0.40:
-                        if not in_speech:
-                            in_speech = True
-                            silence_frames = 0
-                            speech_buffer = []
-                            await send_json({"type": "vad_state", "speaking": True})
+                    if prob > 0.55:  # High-confidence speech threshold
+                        speech_streak += 1
+                        if speech_streak >= 2:  # Require at least ~64ms of speech
+                            if not in_speech:
+                                in_speech = True
+                                silence_frames = 0
+                                speech_buffer = []
+                                await send_json({"type": "vad_state", "speaking": True})
 
-                        # User barge-in: stop bot playback and cancel pending LLM turn
-                        if is_bot_speaking:
-                            is_bot_speaking = False
-                            await send_json({"type": "clear_audio"})
+                            # Stop audio playback in user's speaker immediately so caller is heard
+                            if is_bot_speaking:
+                                is_bot_speaking = False
+                                await send_json({"type": "clear_audio"})
 
-                        if current_turn_task and not current_turn_task.done():
-                            current_turn_task.cancel()
-                            current_turn_task = None
-                            is_processing_turn = False
-
-                        if in_speech:
-                            silence_frames = 0
                             speech_buffer.append(window)
                     else:
+                        speech_streak = 0
                         if in_speech:
                             speech_buffer.append(window)
                             silence_frames += 1
-                            if silence_frames >= 16:  # ~512ms silence
+                            if silence_frames >= 16:  # ~512ms silence after speech
                                 in_speech = False
                                 silence_frames = 0
                                 await send_json({"type": "vad_state", "speaking": False})
