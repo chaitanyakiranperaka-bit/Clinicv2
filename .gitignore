@@ -1,0 +1,10 @@
+voice-env/
+venv/
+__pycache__/
+*.pyc
+service_account.json
+*.pem
+.env
+.cache/
+kokoro-v1_0.pth
+*.wav

@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Star Dental & GP Clinic — Softphone Simulator</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 24px; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; gap: 24px; }
+    .phone-card { background: #1e293b; width: 380px; border-radius: 28px; padding: 24px; box-shadow: 0 12px 35px rgba(0,0,0,0.6); border: 2px solid #334155; display: flex; flex-direction: column; align-items: center; }
+    .speaker-notch { width: 64px; height: 6px; background: #475569; border-radius: 4px; margin-bottom: 18px; }
+    .clinic-title { font-size: 1.15rem; font-weight: 700; margin: 0; text-align: center; }
+    .clinic-sub { font-size: 0.8rem; color: #94a3b8; margin-top: 4px; margin-bottom: 16px; }
+    .call-status-pill { background: #0f172a; border: 1px solid #334155; padding: 6px 14px; border-radius: 999px; font-size: 0.82rem; color: #cbd5e1; margin-bottom: 10px; }
+    .timer { font-size: 2rem; font-weight: 300; font-variant-numeric: tabular-nums; margin: 6px 0 16px 0; color: #e2e8f0; }
+    .caller-select-box { width: 100%; margin-bottom: 18px; text-align: left; }
+    .caller-select-box label { font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .caller-select-box select { width: 100%; padding: 10px; border-radius: 10px; background: #0f172a; color: #f8fafc; border: 1px solid #334155; font-size: 0.9rem; }
+    .vad-ring { width: 92px; height: 92px; border-radius: 50%; background: #0f172a; border: 3px solid #334155; display: flex; align-items: center; justify-content: center; margin: 10px 0 22px 0; transition: 0.15s; font-size: 2rem; }
+    .vad-ring.user-speaking { border-color: #22c55e; box-shadow: 0 0 25px rgba(34,197,94,0.45); }
+    .vad-ring.bot-speaking { border-color: #38bdf8; box-shadow: 0 0 25px rgba(56,189,248,0.45); }
+    .btn-row { display: flex; gap: 16px; width: 100%; justify-content: center; margin-top: 8px; }
+    .call-btn { flex: 1; padding: 14px; border: none; border-radius: 999px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .btn-green { background: #16a34a; color: white; }
+    .btn-green:hover { background: #15803d; }
+    .btn-red { background: #dc2626; color: white; display: none; }
+    .btn-red:hover { background: #b91c1c; }
+    .dashboard { flex: 1; max-width: 680px; display: flex; flex-direction: column; gap: 18px; }
+    .panel { background: #1e293b; border-radius: 16px; padding: 20px; border: 1px solid #334155; }
+    .panel h3 { margin: 0 0 12px 0; font-size: 1rem; display: flex; justify-content: space-between; align-items: center; }
+    .badge { font-size: 0.75rem; font-weight: 500; padding: 4px 10px; border-radius: 999px; background: #0f172a; color: #38bdf8; border: 1px solid #334155; }
+    #transcript { background: #0f172a; border-radius: 10px; padding: 14px; height: 260px; overflow-y: auto; font-size: 0.88rem; display: flex; flex-direction: column; gap: 8px; }
+    .msg-user { color: #86efac; }
+    .msg-bot { color: #7dd3fc; }
+    .msg-tool { color: #fcd34d; font-size: 0.8rem; font-family: monospace; }
+    .msg-alert { background: #7f1d1d; color: #fecaca; padding: 8px 12px; border-radius: 8px; font-weight: 600; }
+    .sec-warning { background: #7f1d1d; color: #fecaca; border: 1px solid #ef4444; padding: 10px; border-radius: 8px; font-size: 0.8rem; margin-bottom: 12px; display: none; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #334155; }
+    th { color: #94a3b8; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="phone-card">
+    <div class="speaker-notch"></div>
+    <h2 class="clinic-title">Star Dental & GP Clinic</h2>
+    <div class="clinic-sub">Clonsilla, Dublin 15 • Hands-Free Line</div>
+
+    <div id="secWarning" class="sec-warning">
+      ⚠️ <strong>Insecure Origin</strong>: Web browsers disable microphone access when using public HTTP IPs. Please open via <code>http://localhost:8998</code> using your SSH tunnel.
+    </div>
+
+    <div class="call-status-pill" id="callState">Idle • On-Hook</div>
+    <div class="timer" id="callTimer">00:00</div>
+
+    <div class="caller-select-box">
+      <label>Simulated Inbound Caller ID</label>
+      <select id="callerIdSelect">
+        <option value="+353871234567">+353 87 123 4567 (Known: Seán Murphy)</option>
+        <option value="+353869876543">+353 86 987 6543 (Known: Aoife Kelly)</option>
+        <option value="+353850001122">+353 85 000 1122 (New Patient)</option>
+      </select>
+    </div>
+
+    <div class="vad-ring" id="vadRing">📞</div>
+
+    <div class="btn-row">
+      <button class="call-btn btn-green" id="callBtn">📞 Call Clinic</button>
+      <button class="call-btn btn-red" id="hangupBtn">🔴 Disconnect</button>
+    </div>
+  </div>
+
+  <div class="dashboard">
+    <div class="panel">
+      <h3>
+        <span>Live Call Transcript & Tool Trace</span>
+        <span class="badge" id="modelBadge">Modular Server</span>
+      </h3>
+      <div id="transcript"></div>
+    </div>
+
+    <div class="panel">
+      <h3>
+        <span>Google Calendar Bookings</span>
+        <span class="badge" id="gcalBadge">Checking...</span>
+      </h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Clinician</th>
+            <th>Date & Time</th>
+            <th>Patient (DOB)</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="bookingsBody">
+          <tr><td colspan="4" style="color:#64748b;">No bookings recorded yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    let ws = null;
+    let audioCtx = null;
+    let mediaStream = null;
+    let processor = null;
+    let timerInterval = null;
+    let secondsElapsed = 0;
+    let audioQueue = [];
+    let isPlayingAudio = false;
+    let currentAudioSource = null;
+
+    const callBtn = document.getElementById("callBtn");
+    const hangupBtn = document.getElementById("hangupBtn");
+    const callStateEl = document.getElementById("callState");
+    const callTimerEl = document.getElementById("callTimer");
+    const vadRing = document.getElementById("vadRing");
+    const transcriptEl = document.getElementById("transcript");
+    const bookingsBody = document.getElementById("bookingsBody");
+    const callerIdSelect = document.getElementById("callerIdSelect");
+    const secWarning = document.getElementById("secWarning");
+
+    // Check secure context
+    if (window.isSecureContext === false && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
+      secWarning.style.display = "block";
+    }
+
+    fetch("/status").then(r => r.json()).then(data => {
+      document.getElementById("gcalBadge").innerText = data.calendar_badge;
+      document.getElementById("modelBadge").innerText = data.model_id;
+    }).catch(() => {});
+
+    function logLine(html, cls) {
+      const div = document.createElement("div");
+      div.className = cls;
+      div.innerHTML = html;
+      transcriptEl.appendChild(div);
+      transcriptEl.scrollTop = transcriptEl.scrollHeight;
+    }
+
+    function formatTime(sec) {
+      const m = String(Math.floor(sec / 60)).padStart(2, "0");
+      const s = String(sec % 60).padStart(2, "0");
+      return `${m}:${s}`;
+    }
+
+    function stopAllPlayback() {
+      audioQueue = [];
+      if (currentAudioSource) {
+        try { currentAudioSource.stop(); } catch (e) {}
+        currentAudioSource = null;
+      }
+      isPlayingAudio = false;
+      vadRing.classList.remove("bot-speaking");
+    }
+
+    async function playNextInQueue() {
+      if (isPlayingAudio || audioQueue.length === 0) return;
+      if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+      isPlayingAudio = true;
+      vadRing.classList.add("bot-speaking");
+      const b64 = audioQueue.shift();
+
+      try {
+        const binary = atob(b64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const audioBuffer = await audioCtx.decodeAudioData(bytes.buffer);
+
+        const source = audioCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(audioCtx.destination);
+        currentAudioSource = source;
+
+        source.onended = () => {
+          currentAudioSource = null;
+          isPlayingAudio = false;
+          if (audioQueue.length === 0) {
+            vadRing.classList.remove("bot-speaking");
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ action: "playback_finished" }));
+            }
+          } else {
+            playNextInQueue();
+          }
+        };
+        source.start(0);
+      } catch (err) {
+        console.error("Audio playback error:", err);
+        isPlayingAudio = false;
+        playNextInQueue();
+      }
+    }
+
+    function resampleTo16k(inputBuffer, inputSampleRate) {
+      if (inputSampleRate === 16000) return inputBuffer;
+      const ratio = inputSampleRate / 16000;
+      const newLength = Math.round(inputBuffer.length / ratio);
+      const result = new Float32Array(newLength);
+      for (let i = 0; i < newLength; i++) {
+        const srcIdx = i * ratio;
+        const idxFloor = Math.floor(srcIdx);
+        const idxCeil = Math.min(idxFloor + 1, inputBuffer.length - 1);
+        const interp = srcIdx - idxFloor;
+        result[i] = inputBuffer[idxFloor] * (1 - interp) + inputBuffer[idxCeil] * interp;
+      }
+      return result;
+    }
+
+    async function getMicrophoneStream() {
+      const constraints = { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } };
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        return await navigator.mediaDevices.getUserMedia(constraints);
+      }
+      const legacyGetUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
+      if (legacyGetUserMedia) {
+        return new Promise((resolve, reject) => legacyGetUserMedia.call(navigator, constraints, resolve, reject));
+      }
+      throw new Error("navigator.mediaDevices is undefined. Access via http://localhost:8998 over your SSH tunnel.");
+    }
+
+    callBtn.onclick = async () => {
+      callerIdSelect.disabled = true;
+      callBtn.style.display = "none";
+      hangupBtn.style.display = "flex";
+      callStateEl.innerText = "Connecting...";
+
+      try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        await audioCtx.resume();
+
+        mediaStream = await getMicrophoneStream();
+
+        const callerId = encodeURIComponent(callerIdSelect.value);
+        const proto = location.protocol === "https:" ? "wss:" : "ws:";
+        ws = new WebSocket(`${proto}//${location.host}/ws/call?caller_id=${callerId}`);
+        ws.binaryType = "arraybuffer";
+
+        ws.onopen = () => {
+          callStateEl.innerText = "🟢 In Call • Hands-Free";
+          secondsElapsed = 0;
+          callTimerEl.innerText = "00:00";
+          timerInterval = setInterval(() => {
+            secondsElapsed++;
+            callTimerEl.innerText = formatTime(secondsElapsed);
+          }, 1000);
+
+          const micSource = audioCtx.createMediaStreamSource(mediaStream);
+          processor = audioCtx.createScriptProcessor(2048, 1, 1);
+          const muteNode = audioCtx.createGain();
+          muteNode.gain.value = 0;
+
+          micSource.connect(processor);
+          processor.connect(muteNode);
+          muteNode.connect(audioCtx.destination);
+
+          processor.onaudioprocess = (e) => {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            const input32 = e.inputBuffer.getChannelData(0);
+            const pcm16k = resampleTo16k(input32, audioCtx.sampleRate);
+            ws.send(pcm16k.buffer);
+          };
+        };
+
+        ws.onmessage = (event) => {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "audio") {
+            audioQueue.push(msg.b64);
+            playNextInQueue();
+          } else if (msg.type === "clear_audio") {
+            stopAllPlayback();
+          } else if (msg.type === "vad_state") {
+            if (msg.speaking) vadRing.classList.add("user-speaking");
+            else vadRing.classList.remove("user-speaking");
+          } else if (msg.type === "transcript") {
+            const cls = msg.role === "Patient" ? "msg-user" : "msg-bot";
+            logLine(`<strong>${msg.role}:</strong> ${msg.text}`, cls);
+          } else if (msg.type === "tool_log") {
+            logLine(`⚙️ ${msg.text}`, "msg-tool");
+          } else if (msg.type === "emergency_alert") {
+            logLine(`🚨 999 RED FLAG: ${msg.text}`, "msg-alert");
+          } else if (msg.type === "booking_created") {
+            const b = msg.booking;
+            if (bookingsBody.innerText.includes("No bookings")) bookingsBody.innerHTML = "";
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+              <td><strong>${b.clinician}</strong></td>
+              <td>${b.date} @ ${b.slot_time}</td>
+              <td>${b.patient_name} (${b.patient_dob})</td>
+              <td><span style="color:#4ade80;">Confirmed</span></td>
+            `;
+            bookingsBody.appendChild(tr);
+          }
+        };
+
+        ws.onerror = (err) => {
+          console.error("WebSocket Error:", err);
+          callStateEl.innerText = "❌ Connection Failed";
+        };
+
+        ws.onclose = () => endCallCleanup();
+
+      } catch (err) {
+        alert("Microphone Access Error: " + err.message);
+        endCallCleanup();
+      }
+    };
+
+    hangupBtn.onclick = () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ action: "hangup" }));
+        ws.close();
+      }
+      endCallCleanup();
+    };
+
+    function endCallCleanup() {
+      stopAllPlayback();
+      if (processor) { processor.disconnect(); processor = null; }
+      if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+      if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+      vadRing.classList.remove("user-speaking", "bot-speaking");
+      callStateEl.innerText = "🔴 Call Disconnected";
+      callBtn.style.display = "flex";
+      hangupBtn.style.display = "none";
+      callerIdSelect.disabled = false;
+    }
+  </script>
+</body>
+</html>
