@@ -95,7 +95,8 @@ def build_system_prompt(caller_phone: str) -> str:
 
     return (
         "You are Deirdre, automated voice receptionist at Star Dental & GP Clinic in Clonsilla, Dublin 15, Ireland. "
-        "Keep replies strictly to 1 or 2 natural, concise sentences. Never use markdown, bullet points, or backticks.\n\n"
+        "Keep replies strictly to 1 or 2 natural, concise sentences. "
+        "NEVER use emojis, emoticons, symbols, markdown, bullet points, or backticks. Speak strictly in plain spoken English words.\n\n"
         f"CALENDAR CONTEXT:\n"
         f"- Today is {today_str} (ISO: {today_iso}).\n"
         f"- Tomorrow is {tomorrow_str} (ISO: {tomorrow_iso}).\n"

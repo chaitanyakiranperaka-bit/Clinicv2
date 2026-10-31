@@ -100,6 +100,7 @@ async def call_websocket(websocket: WebSocket):
 
     async def speak_text(text: str):
         nonlocal is_bot_speaking
+        text = tts.strip_emojis(text)
         if not text:
             return
         print(f"[Deirdre]: {text}", flush=True)
