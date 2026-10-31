@@ -100,6 +100,49 @@
   </div>
 
   <script>
+    const WORKLET_CODE = `
+class ClinicAudioProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.targetSampleRate = 16000;
+    this.sourceSampleRate = sampleRate;
+    this.ratio = this.sourceSampleRate / this.targetSampleRate;
+    this.buffer = [];
+    this.targetChunkSize = 1024;
+  }
+  process(inputs) {
+    const input = inputs[0];
+    if (!input || !input[0]) return true;
+    const inputData = input[0];
+    for (let i = 0; i < inputData.length; i++) {
+      this.buffer.push(inputData[i]);
+    }
+    const needed = Math.round(this.targetChunkSize * this.ratio);
+    while (this.buffer.length >= needed) {
+      const rawChunk = this.buffer.splice(0, needed);
+      const resampled = this.resampleTo16k(rawChunk);
+      this.port.postMessage(resampled.buffer, [resampled.buffer]);
+    }
+    return true;
+  }
+  resampleTo16k(inputArray) {
+    if (this.sourceSampleRate === 16000) return new Float32Array(inputArray);
+    const newLength = this.targetChunkSize;
+    const result = new Float32Array(newLength);
+    const step = (inputArray.length - 1) / (newLength - 1 || 1);
+    for (let i = 0; i < newLength; i++) {
+      const srcIdx = i * step;
+      const idxFloor = Math.floor(srcIdx);
+      const idxCeil = Math.min(idxFloor + 1, inputArray.length - 1);
+      const interp = srcIdx - idxFloor;
+      result[i] = inputArray[idxFloor] * (1 - interp) + inputArray[idxCeil] * interp;
+    }
+    return result;
+  }
+}
+registerProcessor("clinic-audio-processor", ClinicAudioProcessor);
+`;
+
     let ws = null;
     let audioCtx = null;
     let mediaStream = null;
@@ -237,7 +280,7 @@
         ws = new WebSocket(`${proto}//${location.host}/ws/call?caller_id=${callerId}`);
         ws.binaryType = "arraybuffer";
 
-        ws.onopen = () => {
+        ws.onopen = async () => {
           callStateEl.innerText = "🟢 In Call • Hands-Free";
           secondsElapsed = 0;
           callTimerEl.innerText = "00:00";
@@ -265,9 +308,13 @@
             };
           }
 
-          if (audioCtx.audioWorklet) {
+          if (audioCtx.audioWorklet && window.isSecureContext) {
             try {
-              await audioCtx.audioWorklet.addModule("/static/audio-processor.js");
+              const workletBlob = new Blob([WORKLET_CODE], { type: "application/javascript" });
+              const workletUrl = URL.createObjectURL(workletBlob);
+              await audioCtx.audioWorklet.addModule(workletUrl);
+              URL.revokeObjectURL(workletUrl);
+
               processor = new AudioWorkletNode(audioCtx, "clinic-audio-processor");
               processor.port.onmessage = (e) => {
                 if (ws && ws.readyState === WebSocket.OPEN) {

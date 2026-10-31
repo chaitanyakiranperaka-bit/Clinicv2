@@ -5,7 +5,6 @@ import numpy as np
 import torch
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from silero_vad import load_silero_vad
 
 from config import build_system_prompt, KNOWN_PATIENTS, GOOGLE_CALENDAR_ID, BEDROCK_MODEL_ID
@@ -15,7 +14,6 @@ import tts
 import llm
 
 app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")
 
 print("[INIT VAD] Loading Silero VAD (CPU)...", flush=True)
 global_vad_model = load_silero_vad()
