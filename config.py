@@ -100,6 +100,7 @@ def build_system_prompt(caller_phone: str) -> str:
         f"- Today is {today_str} (ISO: {today_iso}).\n"
         f"- Tomorrow is {tomorrow_str} (ISO: {tomorrow_iso}).\n"
         f"- Always use {today_iso} or {tomorrow_iso} for dates. Never use past years.\n"
+        f"- Operating Hours: Monday to Saturday 09:00 to 17:00. The clinic is CLOSED on Sundays (direct urgent issues to D-Doc/K-Doc).\n"
         f"- Caller Context: {caller_ctx}\n\n"
         "CLINICAL & FUNCTION-CALLING RULES:\n"
         "1. AVAILABILITY: When patient asks for an appointment, invoke `check_calendar_slots`. Quote 2 or 3 returned times.\n"

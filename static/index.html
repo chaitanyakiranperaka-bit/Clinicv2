@@ -247,20 +247,42 @@
           }, 1000);
 
           const micSource = audioCtx.createMediaStreamSource(mediaStream);
-          processor = audioCtx.createScriptProcessor(2048, 1, 1);
-          const muteNode = audioCtx.createGain();
-          muteNode.gain.value = 0;
 
-          micSource.connect(processor);
-          processor.connect(muteNode);
-          muteNode.connect(audioCtx.destination);
+          function setupScriptProcessorFallback(source) {
+            processor = audioCtx.createScriptProcessor(2048, 1, 1);
+            const muteNode = audioCtx.createGain();
+            muteNode.gain.value = 0;
 
-          processor.onaudioprocess = (e) => {
-            if (!ws || ws.readyState !== WebSocket.OPEN) return;
-            const input32 = e.inputBuffer.getChannelData(0);
-            const pcm16k = resampleTo16k(input32, audioCtx.sampleRate);
-            ws.send(pcm16k.buffer);
-          };
+            source.connect(processor);
+            processor.connect(muteNode);
+            muteNode.connect(audioCtx.destination);
+
+            processor.onaudioprocess = (e) => {
+              if (!ws || ws.readyState !== WebSocket.OPEN) return;
+              const input32 = e.inputBuffer.getChannelData(0);
+              const pcm16k = resampleTo16k(input32, audioCtx.sampleRate);
+              ws.send(pcm16k.buffer);
+            };
+          }
+
+          if (audioCtx.audioWorklet) {
+            try {
+              await audioCtx.audioWorklet.addModule("/static/audio-processor.js");
+              processor = new AudioWorkletNode(audioCtx, "clinic-audio-processor");
+              processor.port.onmessage = (e) => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  ws.send(e.data);
+                }
+              };
+              micSource.connect(processor);
+              console.log("[Audio] AudioWorkletProcessor loaded successfully.");
+            } catch (workletErr) {
+              console.warn("[Audio] AudioWorklet failed, using ScriptProcessor fallback:", workletErr);
+              setupScriptProcessorFallback(micSource);
+            }
+          } else {
+            setupScriptProcessorFallback(micSource);
+          }
         };
 
         ws.onmessage = (event) => {
@@ -317,8 +339,17 @@
 
     function endCallCleanup() {
       stopAllPlayback();
-      if (processor) { processor.disconnect(); processor = null; }
+      if (processor) {
+        if (processor.port) processor.port.onmessage = null;
+        if (processor.onaudioprocess) processor.onaudioprocess = null;
+        try { processor.disconnect(); } catch (e) {}
+        processor = null;
+      }
       if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+      if (audioCtx) {
+        try { audioCtx.close(); } catch (e) {}
+        audioCtx = null;
+      }
       if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
       vadRing.classList.remove("user-speaking", "bot-speaking");
       callStateEl.innerText = "🔴 Call Disconnected";

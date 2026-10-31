@@ -226,21 +226,25 @@ ssh -i "<path-to-key>.pem" -L 8998:localhost:8998 ubuntu@<EC2-PUBLIC-IP>
 
 ## 7. Antigravity Next Steps & Roadmap
 
-When continuing development inside Antigravity, focus on the following backlog items:
+### Completed:
+* [x] **Replace `ScriptProcessorNode` with `AudioWorklet`**:
+  * Implemented dedicated `AudioWorkletProcessor` (`static/audio-processor.js`) running off the main UI thread with 16kHz resampling and transferable ArrayBuffer streaming. Includes graceful fallback to `ScriptProcessorNode` for legacy browsers.
+* [x] **Conversational Bug Fixes & Resiliency**:
+  * Added same-day past-slot filtering with 15-minute lead-time buffer.
+  * Added Sunday clinic closure guard with automated next-Monday referral.
+  * Implemented abbreviation-safe sentence tokenizer protecting titles (`Dr. Yousuf`) and preserving `?` and `!` punctuation for Kokoro TTS inflection.
+  * Migrated filler audio from unconditional per-turn playback to targeted tool execution latency masking.
+  * Added GCal client caching to eliminate 200–500ms discovery overhead on every turn.
+  * Added per-connection VAD state isolation and barge-in turn cancellation.
 
-1. **Replace `ScriptProcessorNode` with `AudioWorklet**`:
-* `static/index.html` currently uses deprecated `ScriptProcessorNode`. Migrate to an `AudioWorkletProcessor` running on a background audio thread to eliminate occasional UI-thread audio glitches.
+### Remaining Roadmap:
+1. **Persistent Database Layer**:
+* Migrate the in-memory `KNOWN_PATIENTS` dictionary and `LOCAL_BOOKINGS` staging list to SQLite / PostgreSQL with SQLAlchemy.
 
-
-2. **Persistent Database Layer**:
-* Migrate the in-memory `KNOWN_PATIENTS` dictionary and `LOCAL_BOOKINGS` staging list to PostgreSQL (AWS RDS or local SQLite) with SQLAlchemy/Tortoise-ORM.
-
-
-3. **Telephony Ingestion (Twilio / FreeSWITCH / Asterisk SIP)**:
+2. **Telephony Ingestion (Twilio / FreeSWITCH / Asterisk SIP)**:
 * Bridge the WebSocket handler (`/ws/call`) to accept bidirectional G.711 / μ-law 8kHz audio streams from Twilio Media Streams or an Asterisk/FreeSWITCH SIP PBX trunk.
 
-
-4. **Irish Practice Management System (PMS) Export**:
+3. **Irish Practice Management System (PMS) Export**:
 * Implement automated Healthlink / Socrates / Helix PMS export adapters for completed provisional bookings.
 
 

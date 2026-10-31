@@ -11,15 +11,32 @@ print(f"[INIT LLM] Connecting to Bedrock ({AWS_REGION} | {BEDROCK_MODEL_ID})..."
 boto_config = Config(connect_timeout=4, read_timeout=12, retries={"max_attempts": 1})
 bedrock_client = boto3.client("bedrock-runtime", region_name=AWS_REGION, config=boto_config)
 
-async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on_tool_log=None, on_booking=None, on_emergency=None):
-    response = await asyncio.to_thread(
-        bedrock_client.converse,
-        modelId=BEDROCK_MODEL_ID,
-        system=[{"text": system_prompt}],
-        messages=messages,
-        toolConfig=BEDROCK_TOOLS,
-        inferenceConfig={"maxTokens": 140, "temperature": 0.1}
-    )
+def normalize_date(date_str: str) -> str:
+    """Safely normalizes input date string to YYYY-MM-DD in Dublin timezone."""
+    today_iso = datetime.now(DUBLIN_TZ).strftime("%Y-%m-%d")
+    if not date_str or not isinstance(date_str, str):
+        return today_iso
+    try:
+        dt = datetime.strptime(date_str.strip(), "%Y-%m-%d")
+        if dt.year < 2026:
+            return today_iso
+        return dt.strftime("%Y-%m-%d")
+    except Exception:
+        return today_iso
+
+async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on_tool_log=None, on_booking=None, on_emergency=None, on_tool_start=None):
+    try:
+        response = await asyncio.to_thread(
+            bedrock_client.converse,
+            modelId=BEDROCK_MODEL_ID,
+            system=[{"text": system_prompt}],
+            messages=messages,
+            toolConfig=BEDROCK_TOOLS,
+            inferenceConfig={"maxTokens": 140, "temperature": 0.1}
+        )
+    except Exception as e:
+        print(f"[Bedrock Converse Error]: {e}", flush=True)
+        return "I apologize, I am experiencing a brief system delay. Could you please repeat that?"
 
     output_msg = response["output"]["message"]
     messages.append(output_msg)
@@ -35,15 +52,15 @@ async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on
                 t_in = t_use.get("input", {})
 
                 print(f"[TOOL TRIGGERED]: {t_name} with {t_in}", flush=True)
+                if on_tool_start:
+                    await on_tool_start(t_name)
                 if on_tool_log:
                     await on_tool_log(f"{t_name}({json.dumps(t_in)})")
 
                 matched = KNOWN_PATIENTS.get(caller_phone)
 
                 if t_name == "check_calendar_slots":
-                    target_date = t_in.get("date", datetime.now(DUBLIN_TZ).strftime("%Y-%m-%d"))
-                    if int(target_date.split("-")[0]) < 2026:
-                        target_date = datetime.now(DUBLIN_TZ).strftime("%Y-%m-%d")
+                    target_date = normalize_date(t_in.get("date"))
                     res_data = await asyncio.to_thread(
                         calendar_service.check_calendar_slots,
                         t_in.get("clinician", "Dr. Yousuf"),
@@ -51,9 +68,7 @@ async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on
                         t_in.get("time_preference", "any")
                     )
                 elif t_name == "book_calendar_slot":
-                    target_date = t_in.get("date", datetime.now(DUBLIN_TZ).strftime("%Y-%m-%d"))
-                    if int(target_date.split("-")[0]) < 2026:
-                        target_date = datetime.now(DUBLIN_TZ).strftime("%Y-%m-%d")
+                    target_date = normalize_date(t_in.get("date"))
                     res_data = await asyncio.to_thread(
                         calendar_service.book_calendar_slot,
                         t_in.get("clinician", "Dr. Yousuf"),
@@ -82,16 +97,20 @@ async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on
                 })
 
         messages.append({"role": "user", "content": tool_results_content})
-        follow_up = await asyncio.to_thread(
-            bedrock_client.converse,
-            modelId=BEDROCK_MODEL_ID,
-            system=[{"text": system_prompt}],
-            messages=messages,
-            toolConfig=BEDROCK_TOOLS,
-            inferenceConfig={"maxTokens": 100, "temperature": 0.1}
-        )
-        output_msg = follow_up["output"]["message"]
-        messages.append(output_msg)
+        try:
+            follow_up = await asyncio.to_thread(
+                bedrock_client.converse,
+                modelId=BEDROCK_MODEL_ID,
+                system=[{"text": system_prompt}],
+                messages=messages,
+                toolConfig=BEDROCK_TOOLS,
+                inferenceConfig={"maxTokens": 100, "temperature": 0.1}
+            )
+            output_msg = follow_up["output"]["message"]
+            messages.append(output_msg)
+        except Exception as e:
+            print(f"[Bedrock Followup Error]: {e}", flush=True)
+            return "I have updated the schedule, but had a brief network delay. Could you please confirm if you need anything else?"
 
     spoken_parts = [b["text"] for b in output_msg["content"] if "text" in b]
     return " ".join(spoken_parts).strip()
