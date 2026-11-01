@@ -64,6 +64,43 @@ def list_booked_slots_for_date(clinician: str, date_str: str) -> list:
 
     return sorted(list(booked))
 
+def parse_time_preference(pref: str):
+    """Extracts a target slot HH:MM from strings like '10:30', '1030', '10am', '2pm', '10'."""
+    if not pref:
+        return None
+    pref = pref.lower().strip()
+    if pref in ("morning", "afternoon", "any"):
+        return None
+
+    # 1. Standard HH:MM
+    m1 = re.search(r"\b(\d{1,2}):(\d{2})\b", pref)
+    if m1:
+        return f"{int(m1.group(1)):02d}:{m1.group(2)}"
+
+    # 2. 4-digit colloquial/military time e.g. '1030', '0915', '1430'
+    m2 = re.search(r"\b([01]?\d|2[0-3])([0-5]\d)\b", pref)
+    if m2:
+        return f"{int(m2.group(1)):02d}:{m2.group(2)}"
+
+    # 3. 10am, 2pm, 10 am
+    m3 = re.search(r"\b(\d{1,2})\s*(am|pm)\b", pref)
+    if m3:
+        h = int(m3.group(1))
+        if m3.group(2) == "pm" and h < 12:
+            h += 12
+        elif m3.group(2) == "am" and h == 12:
+            h = 0
+        return f"{h:02d}:00"
+
+    # 4. Standalone hour e.g. 'at 10', '10'
+    m4 = re.search(r"\b(?:at\s+)?(\d{1,2})\b", pref)
+    if m4:
+        h = int(m4.group(1))
+        if 8 <= h <= 18:
+            return f"{h:02d}:00"
+
+    return None
+
 def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "any") -> dict:
     try:
         query_date = datetime.strptime(date_str, "%Y-%m-%d")
@@ -103,19 +140,7 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
     afternoon = [s for s in free_slots if int(s.split(":")[0]) >= 13]
 
     pref = (time_preference or "any").lower().strip()
-
-    # Check if a specific time or hour is requested (e.g. "10:00", "10", "10am", "2pm", "14:30")
-    time_match = re.search(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", pref)
-    target_slot = None
-    if time_match and "morning" not in pref and "afternoon" not in pref:
-        hour = int(time_match.group(1))
-        minute = int(time_match.group(2)) if time_match.group(2) else 0
-        ampm = time_match.group(3)
-        if ampm == "pm" and hour < 12:
-            hour += 12
-        elif ampm == "am" and hour == 12:
-            hour = 0
-        target_slot = f"{hour:02d}:{minute:02d}"
+    target_slot = parse_time_preference(pref)
 
     if target_slot:
         exact_available = target_slot in free_slots
@@ -126,30 +151,42 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
             return abs((h * 60 + m) - (th * 60 + tm))
 
         closest = sorted(free_slots, key=distance)[:3]
-        suggested = sorted(closest)
-        status_msg = (
-            f"{target_slot} is AVAILABLE."
-            if exact_available
-            else f"{target_slot} is NOT available. Closest open times are: {', '.join(suggested)}."
-        )
+        if exact_available:
+            suggested = [target_slot]
+            status_msg = f"{target_slot} is AVAILABLE with {clinician} on {date_str}."
+            instruction = (
+                f"Tell the caller: 'Yes, {target_slot} is available with {clinician} on {date_str}. "
+                "Would you like me to book that for you?' Wait for their explicit confirmation."
+            )
+        else:
+            suggested = sorted(closest)
+            status_msg = f"{target_slot} is NOT available with {clinician} on {date_str}. Closest alternative times are: {', '.join(suggested)}."
+            instruction = (
+                f"Tell the caller: '{target_slot} is not available with {clinician}, but I have {', '.join(suggested)} open. "
+                "Would one of those times suit you?'"
+            )
     elif "morning" in pref:
         suggested = morning[:3] if morning else afternoon[:3]
-        status_msg = f"Available morning slots: {', '.join(suggested)}"
+        status_msg = f"Available morning slots with {clinician}: {', '.join(suggested)}"
+        instruction = f"Quote 2 or 3 of these morning times: {', '.join(suggested)}."
     elif "afternoon" in pref:
         suggested = afternoon[:3] if afternoon else morning[:3]
-        status_msg = f"Available afternoon slots: {', '.join(suggested)}"
+        status_msg = f"Available afternoon slots with {clinician}: {', '.join(suggested)}"
+        instruction = f"Quote 2 or 3 of these afternoon times: {', '.join(suggested)}."
     else:
         suggested = (morning[:2] + afternoon[:2]) if (morning and afternoon) else free_slots[:3]
-        status_msg = f"Available slots: {', '.join(suggested)}"
+        status_msg = f"Available slots with {clinician}: {', '.join(suggested)}"
+        instruction = f"Quote 2 or 3 of these times: {', '.join(suggested)}. Ask which time they prefer."
 
     return {
         "status": "success",
         "clinician": clinician,
         "date": date_str,
+        "is_requested_time_available": bool(target_slot and target_slot in free_slots),
         "suggested_slots_to_quote": suggested,
         "all_open_slots": free_slots,
-        "availability_summary": status_msg,
-        "instruction": "Speak these times to the patient. Quote the specific clinician, date, and time, and ask: 'Would you like me to book that for you?' Wait for their explicit confirmation before booking."
+        "availability_verdict": status_msg,
+        "instruction": instruction
     }
 
 def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_name: str, patient_dob: str, caller_phone: str, appointment_category: str) -> dict:

@@ -26,14 +26,14 @@ BEDROCK_TOOLS = {
         {
             "toolSpec": {
                 "name": "check_calendar_slots",
-                "description": "Call this tool whenever checking what appointment times are available, OR when patient asks for a specific time/time of day (e.g. 'Do you have 10:00?', 'What about afternoon?'). Always call this tool to verify availability rather than assuming from previous answers.",
+                "description": "Call this tool whenever checking appointment availability OR whenever caller mentions ANY time (e.g. '10:30', '1030', 'morning', 'after 2pm'). Pass the caller's time into `time_preference`.",
                 "inputSchema": {
                     "json": {
                         "type": "object",
                         "properties": {
                             "clinician": {"type": "string", "enum": ["Dr. Yousuf", "Dentist Shailaja", "Nurse Kelly"]},
                             "date": {"type": "string", "description": "Date in YYYY-MM-DD format."},
-                            "time_preference": {"type": "string", "description": "Specific time requested (e.g. '10:00', '14:30', '10am') or general preference ('morning', 'afternoon', 'any')."}
+                            "time_preference": {"type": "string", "description": "The specific time mentioned by the caller (e.g. '10:30', '1030', '14:30', '10am') or preference ('morning', 'afternoon')."}
                         },
                         "required": ["clinician", "date"]
                     }
@@ -104,7 +104,7 @@ def build_system_prompt(caller_phone: str) -> str:
         f"- Operating Hours: Monday to Saturday 09:00 to 17:00. The clinic is CLOSED on Sundays (direct urgent issues to D-Doc/K-Doc).\n"
         f"- Caller Context: {caller_ctx}\n\n"
         "CLINICAL & FUNCTION-CALLING RULES:\n"
-        "1. AVAILABILITY: When patient asks for an appointment or a specific/different time (e.g. 'Do you have 10:00?', 'What about afternoon?'), ALWAYS invoke `check_calendar_slots` with their requested time or preference. Never assume or claim a time is unavailable without calling the tool.\n"
+        "1. AVAILABILITY: Whenever the caller mentions or asks about ANY time (e.g. '1030', '10:30', 'afternoon', 'You have a 1030 slot'), you MUST call `check_calendar_slots` with `time_preference` set to that time. Always strictly follow the tool's `availability_verdict` and `instruction`. If the tool says a slot is AVAILABLE, it IS available — never tell the caller it is unavailable!\n"
         "2. EXPLICIT CONFIRMATION BEFORE BOOKING: You MUST NEVER call `book_calendar_slot` without getting explicit confirmation first. "
         "When an available time is identified, explicitly quote the clinician, date, and time to the caller and ask for confirmation: "
         "'I have [Date] at [Time] available with [Clinician]. Would you like me to book that for you?' "

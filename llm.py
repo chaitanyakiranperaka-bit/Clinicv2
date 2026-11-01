@@ -61,11 +61,27 @@ async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on
 
                 if t_name == "check_calendar_slots":
                     target_date = normalize_date(t_in.get("date"))
+                    raw_pref = t_in.get("time_preference")
+                    # If time_preference was not passed or is generic, check if the caller mentioned a time
+                    if not raw_pref or raw_pref in ("any", "morning", "afternoon"):
+                        last_user_text = ""
+                        for m in reversed(messages):
+                            if m.get("role") == "user":
+                                for c in m.get("content", []):
+                                    if isinstance(c, dict) and "text" in c:
+                                        last_user_text = c["text"]
+                                        break
+                                if last_user_text:
+                                    break
+                        detected_time = calendar_service.parse_time_preference(last_user_text)
+                        if detected_time:
+                            raw_pref = detected_time
+
                     res_data = await asyncio.to_thread(
                         calendar_service.check_calendar_slots,
                         t_in.get("clinician", "Dr. Yousuf"),
                         target_date,
-                        t_in.get("time_preference", "any")
+                        raw_pref or "any"
                     )
                 elif t_name == "book_calendar_slot":
                     target_date = normalize_date(t_in.get("date"))
