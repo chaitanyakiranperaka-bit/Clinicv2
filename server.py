@@ -1,5 +1,6 @@
 import json
 import re
+import time
 import asyncio
 import numpy as np
 import torch
@@ -110,6 +111,8 @@ async def call_websocket(websocket: WebSocket):
     is_processing_turn = False
     current_turn_task = None
     unspoken_sentences = []
+    current_speaking_sentence = None
+    bot_speech_start_time = 0.0
 
     # Dedicated VAD model instance per connection for state isolation
     try:
@@ -125,19 +128,30 @@ async def call_websocket(websocket: WebSocket):
             pass
 
     async def resume_unspoken():
-        """Resumes speaking queued sentences if the caller was only making listening backchannels or noise."""
-        nonlocal is_bot_speaking, unspoken_sentences
-        if not unspoken_sentences or is_bot_speaking:
+        """Resumes speaking the interrupted sentence or queued sentences if interruption was just noise or backchannel."""
+        nonlocal is_bot_speaking, unspoken_sentences, current_speaking_sentence, bot_speech_start_time
+        to_speak = []
+        if current_speaking_sentence:
+            to_speak.append(current_speaking_sentence)
+            current_speaking_sentence = None
+        to_speak.extend(unspoken_sentences)
+        unspoken_sentences = []
+
+        if not to_speak or is_bot_speaking:
             return
+
         is_bot_speaking = True
+        bot_speech_start_time = time.time()
+        print(f"[Deirdre Resuming]: {' '.join(to_speak)}", flush=True)
+        unspoken_sentences = list(to_speak)
         while unspoken_sentences and is_bot_speaking:
-            sentence = unspoken_sentences.pop(0)
-            b64_wav = await asyncio.to_thread(tts.synthesize_wav_base64, sentence)
+            current_speaking_sentence = unspoken_sentences.pop(0)
+            b64_wav = await asyncio.to_thread(tts.synthesize_wav_base64, current_speaking_sentence)
             if b64_wav and is_bot_speaking:
                 await send_json({"type": "audio", "b64": b64_wav})
 
     async def speak_text(text: str):
-        nonlocal is_bot_speaking, unspoken_sentences
+        nonlocal is_bot_speaking, unspoken_sentences, current_speaking_sentence, bot_speech_start_time
         text = tts.strip_emojis(text)
         if not text:
             return
@@ -146,9 +160,10 @@ async def call_websocket(websocket: WebSocket):
         sentences = split_into_sentences(text)
         unspoken_sentences = list(sentences)
         is_bot_speaking = True
+        bot_speech_start_time = time.time()
         while unspoken_sentences and is_bot_speaking:
-            sentence = unspoken_sentences.pop(0)
-            b64_wav = await asyncio.to_thread(tts.synthesize_wav_base64, sentence)
+            current_speaking_sentence = unspoken_sentences.pop(0)
+            b64_wav = await asyncio.to_thread(tts.synthesize_wav_base64, current_speaking_sentence)
             if b64_wav and is_bot_speaking:
                 await send_json({"type": "audio", "b64": b64_wav})
 
@@ -169,10 +184,10 @@ async def call_websocket(websocket: WebSocket):
             await send_json({"type": "audio", "b64": tts.FILLER_AUDIO_B64})
 
     async def process_user_turn(audio_np: np.ndarray):
-        nonlocal is_processing_turn, current_turn_task, unspoken_sentences
+        nonlocal is_processing_turn, current_turn_task, unspoken_sentences, current_speaking_sentence
         # Minimum audio frame check: ~250ms (4000 samples at 16kHz) to filter mic pops
         if len(audio_np) < 4000:
-            if unspoken_sentences and not is_bot_speaking:
+            if (unspoken_sentences or current_speaking_sentence) and not is_bot_speaking:
                 asyncio.create_task(resume_unspoken())
             return
 
@@ -183,13 +198,13 @@ async def call_websocket(websocket: WebSocket):
         if is_noise_or_empty(user_text):
             if user_text:
                 print(f"[Filtered Noise/Artifact]: '{user_text}'", flush=True)
-            if unspoken_sentences and not is_bot_speaking:
+            if (unspoken_sentences or current_speaking_sentence) and not is_bot_speaking:
                 asyncio.create_task(resume_unspoken())
             return
 
         # 2. Check if passive conversational backchannel ("uh-huh", "mhm")
         # ONLY treat as backchannel if the bot was mid-speech and still has unspoken sentences to finish!
-        if unspoken_sentences and is_backchannel(user_text):
+        if (unspoken_sentences or current_speaking_sentence) and is_backchannel(user_text):
             print(f"[Patient Backchannel]: '{user_text}' (resuming bot speech)", flush=True)
             if not is_bot_speaking:
                 asyncio.create_task(resume_unspoken())
@@ -201,6 +216,7 @@ async def call_websocket(websocket: WebSocket):
 
         # Discard previous bot sentences since caller has responded or changed topic
         unspoken_sentences = []
+        current_speaking_sentence = None
 
         # Cancel any previous task ONLY if it is a DIFFERENT task than this one
         my_task = asyncio.current_task()
@@ -243,6 +259,7 @@ async def call_websocket(websocket: WebSocket):
                 if data.get("action") == "hangup":
                     break
                 elif data.get("action") == "playback_finished":
+                    current_speaking_sentence = None
                     if not unspoken_sentences:
                         is_bot_speaking = False
 
@@ -254,22 +271,44 @@ async def call_websocket(websocket: WebSocket):
                     window = pcm_fifo[:512]
                     pcm_fifo = pcm_fifo[512:]
 
+                    # Calculate Root-Mean-Square (RMS) audio energy
+                    rms = float(np.sqrt(np.mean(window ** 2)))
                     prob = vad_model(torch.from_numpy(window), 16000).item()
-                    if prob > 0.55:  # High-confidence speech threshold
+
+                    # Dual-Threshold VAD Guard:
+                    # When bot is speaking: protect against acoustic echo bleed, breathing, and minor rustle.
+                    now = time.time()
+                    in_grace_period = is_bot_speaking and (now - bot_speech_start_time < 0.40)
+
+                    if is_bot_speaking:
+                        threshold = 0.72       # Stricter probability for barge-in
+                        required_streak = 7    # ~224ms of sustained speech required to interrupt
+                        min_rms = 0.018        # Must have actual vocal volume
+                    else:
+                        threshold = 0.52       # Standard speech threshold when caller is expected to speak
+                        required_streak = 3    # ~96ms
+                        min_rms = 0.008        # Filters low-level mic hum
+
+                    is_speech_frame = (prob > threshold) and (rms > min_rms) and (not in_grace_period)
+
+                    if is_speech_frame:
                         speech_streak += 1
-                        if speech_streak >= 2:  # Require at least ~64ms of speech
+                        if speech_streak >= required_streak:
                             if not in_speech:
                                 in_speech = True
                                 silence_frames = 0
                                 speech_buffer = []
                                 await send_json({"type": "vad_state", "speaking": True})
 
-                            # Stop audio playback in user's speaker immediately so caller is heard
+                            # Confirmed genuine caller barge-in: stop audio playback
                             if is_bot_speaking:
                                 is_bot_speaking = False
                                 await send_json({"type": "clear_audio"})
 
                             speech_buffer.append(window)
+                        else:
+                            if in_speech:
+                                speech_buffer.append(window)
                     else:
                         speech_streak = 0
                         if in_speech:
