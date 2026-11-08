@@ -2,6 +2,7 @@ import json
 import re
 import time
 import asyncio
+from collections import deque
 import numpy as np
 import torch
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -115,6 +116,7 @@ async def call_websocket(websocket: WebSocket):
 
     messages = []
     pcm_fifo = np.array([], dtype=np.float32)
+    pre_speech_buffer = deque(maxlen=4)
     speech_buffer = []
     in_speech = False
     speech_streak = 0
@@ -301,6 +303,7 @@ async def call_websocket(websocket: WebSocket):
                         required_streak = 3    # ~96ms
                         min_rms = 0.008        # Filters low-level mic hum
 
+                    pre_speech_buffer.append(window)
                     is_speech_frame = (prob > threshold) and (rms > min_rms) and (not in_grace_period)
 
                     if is_speech_frame:
@@ -309,7 +312,8 @@ async def call_websocket(websocket: WebSocket):
                             if not in_speech:
                                 in_speech = True
                                 silence_frames = 0
-                                speech_buffer = []
+                                # Include pre-speech head padding (~128ms) so first consonants are never clipped
+                                speech_buffer = list(pre_speech_buffer)
                                 await send_json({"type": "vad_state", "speaking": True})
 
                             # Confirmed genuine caller barge-in: stop audio playback
@@ -326,11 +330,25 @@ async def call_websocket(websocket: WebSocket):
                         if in_speech:
                             speech_buffer.append(window)
                             silence_frames += 1
-                            if silence_frames >= 16:  # ~512ms silence after speech
+
+                            # Conversational pause threshold:
+                            # If caller spoke only a short phrase (< 1.5s total audio), allow ~1.05s pause (33 frames)
+                            # to think/hesitate without getting cut off.
+                            # For longer turns, allow ~864ms (27 frames).
+                            total_spoken_frames = len(speech_buffer)
+                            required_silence = 33 if total_spoken_frames < 45 else 27
+
+                            if silence_frames >= required_silence:
                                 in_speech = False
                                 silence_frames = 0
                                 await send_json({"type": "vad_state", "speaking": False})
+
+                                # Trim excess trailing silence (keep ~190ms natural tail padding)
+                                trim_frames = max(0, required_silence - 6)
                                 full_turn = np.concatenate(speech_buffer)
+                                if trim_frames > 0 and len(full_turn) > trim_frames * 512:
+                                    full_turn = full_turn[:-trim_frames * 512]
+
                                 speech_buffer = []
                                 current_turn_task = asyncio.create_task(process_user_turn(full_turn))
 
