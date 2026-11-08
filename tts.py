@@ -37,7 +37,10 @@ def strip_emojis(text: str) -> str:
 def synthesize_wav_base64(text: str) -> str:
     clean = re.sub(r"^(Deirdre|Receptionist|Assistant|Doctor):\s*", "", text, flags=re.IGNORECASE).strip()
     clean = re.sub(r"`[^`]*`", "", clean).strip()
+    # Strip any XML/HTML tags like <function=...>, <parameter=...>, <tool_call>, etc.
+    clean = re.sub(r"<[^>]+>", " ", clean)
     clean = strip_emojis(clean)
+    clean = re.sub(r"\s+", " ", clean).strip()
     if not clean:
         return ""
     try:
