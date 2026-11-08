@@ -101,20 +101,113 @@ def parse_time_preference(pref: str):
 
     return None
 
+def format_human_date(date_str: str) -> str:
+    """Formats '2026-11-13' as 'Friday, 13th November 2026'."""
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        day = dt.day
+        if 11 <= day <= 13:
+            suf = "th"
+        else:
+            suf = {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+        return dt.strftime(f"%A, {day}{suf} %B %Y")
+    except Exception:
+        return date_str
+
+WEEKDAYS = {
+    "monday": 0, "mon": 0,
+    "tuesday": 1, "tue": 1, "tues": 1,
+    "wednesday": 2, "wed": 2,
+    "thursday": 3, "thu": 3, "thur": 3, "thurs": 3,
+    "friday": 4, "fri": 4,
+    "saturday": 5, "sat": 5,
+    "sunday": 6, "sun": 6
+}
+
+def parse_date_preference(text: str, base_dt: datetime = None) -> str:
+    """Deterministically extracts target YYYY-MM-DD from caller queries like:
+    - 'on Friday', 'this Friday', 'next Monday', 'Tuesday'
+    - 'today', 'tomorrow', 'day after tomorrow'
+    - 'the 9th', '12th Nov', '13th', 'on the 12th'
+    """
+    if not text:
+        return None
+    if base_dt is None:
+        base_dt = datetime.now(DUBLIN_TZ)
+
+    t = text.lower().strip()
+
+    # 1. Today / Tomorrow / Day after tomorrow
+    if re.search(r"\bday after tomorrow\b", t):
+        return (base_dt + timedelta(days=2)).strftime("%Y-%m-%d")
+    if re.search(r"\btomorrow\b", t):
+        return (base_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+    if re.search(r"\btoday\b", t):
+        return base_dt.strftime("%Y-%m-%d")
+
+    # 2. Weekdays
+    for name, wday in WEEKDAYS.items():
+        pattern = r"\b(?:this\s+|next\s+|coming\s+)?(" + name + r")\b"
+        m = re.search(pattern, t)
+        if m:
+            is_next = bool(re.search(r"\bnext\s+" + name + r"\b", t))
+            cur_wday = base_dt.weekday()
+            diff = (wday - cur_wday) % 7
+            if diff == 0:
+                diff = 7
+            if is_next and diff < 7:
+                diff += 7
+            target = base_dt + timedelta(days=diff)
+            return target.strftime("%Y-%m-%d")
+
+    # 3. Explicit day of month: e.g. "the 12th", "12th nov", "nov 12", "12th", "9th", "10th"
+    m_day = re.search(r"\b(?:the\s+)?([1-9]|[12]\d|3[01])(?:st|nd|rd|th)?(?:\s+(?:of\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*)?\b", t)
+    if m_day:
+        day_num = int(m_day.group(1))
+        month_word = m_day.group(2)
+        has_ordinal = any(ord_s in t for ord_s in [f"{day_num}st", f"{day_num}nd", f"{day_num}rd", f"{day_num}th"])
+        if has_ordinal or month_word or f"the {day_num}" in t or re.search(r"\bon\s+" + str(day_num) + r"\b", t):
+            target_year = base_dt.year
+            target_month = base_dt.month
+            if month_word:
+                months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+                for idx, m_prefix in enumerate(months, 1):
+                    if month_word.startswith(m_prefix):
+                        target_month = idx
+                        break
+            try:
+                candidate = datetime(target_year, target_month, day_num, tzinfo=DUBLIN_TZ)
+                if candidate.date() < base_dt.date() and not month_word:
+                    if target_month == 12:
+                        candidate = datetime(target_year + 1, 1, day_num, tzinfo=DUBLIN_TZ)
+                    else:
+                        candidate = datetime(target_year, target_month + 1, day_num, tzinfo=DUBLIN_TZ)
+                return candidate.strftime("%Y-%m-%d")
+            except Exception:
+                pass
+
+    return None
+
 def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "any") -> dict:
     try:
-        query_date = datetime.strptime(date_str, "%Y-%m-%d")
+        query_date = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=DUBLIN_TZ)
     except ValueError:
         return {"available": False, "message": f"Invalid date format: {date_str}. Please use YYYY-MM-DD."}
+
+    formatted_date = format_human_date(date_str)
 
     # 1. Clinic is closed on Sundays (weekday() == 6)
     if query_date.weekday() == 6:
         days_until_monday = (7 - query_date.weekday()) % 7 or 7
-        next_monday = (query_date + timedelta(days=days_until_monday)).strftime("%Y-%m-%d")
+        next_monday_dt = query_date + timedelta(days=days_until_monday)
+        next_monday_iso = next_monday_dt.strftime("%Y-%m-%d")
+        next_monday_fmt = format_human_date(next_monday_iso)
         return {
             "available": False,
             "closed": True,
-            "message": f"The clinic is closed on Sundays. Please offer Monday ({next_monday}) or advise D-Doc/K-Doc GP cooperative for urgent issues."
+            "date": date_str,
+            "formatted_date": formatted_date,
+            "message": f"The clinic is closed on Sundays ({formatted_date}). Please offer {next_monday_fmt} ({next_monday_iso}) or advise D-Doc/K-Doc GP cooperative for urgent issues."
         }
 
     booked = list_booked_slots_for_date(clinician, date_str)
@@ -131,9 +224,12 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
 
     if not free_slots:
         tomorrow_iso = (now_dublin + timedelta(days=1)).strftime("%Y-%m-%d")
+        tomorrow_fmt = format_human_date(tomorrow_iso)
         return {
             "available": False,
-            "message": f"No remaining open slots for {clinician} on {date_str}. Suggest tomorrow ({tomorrow_iso}) or another date."
+            "date": date_str,
+            "formatted_date": formatted_date,
+            "message": f"No remaining open slots for {clinician} on {formatted_date}. Suggest tomorrow ({tomorrow_fmt}) or another date."
         }
 
     morning = [s for s in free_slots if int(s.split(":")[0]) < 13]
@@ -153,35 +249,36 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
         closest = sorted(free_slots, key=distance)[:3]
         if exact_available:
             suggested = [target_slot]
-            status_msg = f"{target_slot} is AVAILABLE with {clinician} on {date_str}."
+            status_msg = f"{target_slot} is AVAILABLE with {clinician} on {formatted_date}."
             instruction = (
-                f"Tell the caller: 'Yes, {target_slot} is available with {clinician} on {date_str}. "
+                f"Tell the caller: 'Yes, {target_slot} is available with {clinician} on {formatted_date}. "
                 "Would you like me to book that for you?' Wait for their explicit confirmation."
             )
         else:
             suggested = sorted(closest)
-            status_msg = f"{target_slot} is NOT available with {clinician} on {date_str}. Closest alternative times are: {', '.join(suggested)}."
+            status_msg = f"{target_slot} is NOT available with {clinician} on {formatted_date}. Closest alternative times on {formatted_date} are: {', '.join(suggested)}."
             instruction = (
-                f"Tell the caller: '{target_slot} is not available with {clinician}, but I have {', '.join(suggested)} open. "
+                f"Tell the caller: '{target_slot} is not available with {clinician} on {formatted_date}, but I have {', '.join(suggested)} open. "
                 "Would one of those times suit you?'"
             )
     elif "morning" in pref:
         suggested = morning[:3] if morning else afternoon[:3]
-        status_msg = f"Available morning slots with {clinician}: {', '.join(suggested)}"
-        instruction = f"Quote 2 or 3 of these morning times: {', '.join(suggested)}."
+        status_msg = f"Available morning slots with {clinician} on {formatted_date}: {', '.join(suggested)}"
+        instruction = f"Quote 2 or 3 of these morning times on {formatted_date}: {', '.join(suggested)}."
     elif "afternoon" in pref:
         suggested = afternoon[:3] if afternoon else morning[:3]
-        status_msg = f"Available afternoon slots with {clinician}: {', '.join(suggested)}"
-        instruction = f"Quote 2 or 3 of these afternoon times: {', '.join(suggested)}."
+        status_msg = f"Available afternoon slots with {clinician} on {formatted_date}: {', '.join(suggested)}"
+        instruction = f"Quote 2 or 3 of these afternoon times on {formatted_date}: {', '.join(suggested)}."
     else:
         suggested = (morning[:2] + afternoon[:2]) if (morning and afternoon) else free_slots[:3]
-        status_msg = f"Available slots with {clinician}: {', '.join(suggested)}"
-        instruction = f"Quote 2 or 3 of these times: {', '.join(suggested)}. Ask which time they prefer."
+        status_msg = f"Available slots with {clinician} on {formatted_date}: {', '.join(suggested)}"
+        instruction = f"Quote 2 or 3 of these times on {formatted_date}: {', '.join(suggested)}. Ask which time they prefer."
 
     return {
         "status": "success",
         "clinician": clinician,
         "date": date_str,
+        "formatted_date": formatted_date,
         "is_requested_time_available": bool(target_slot and target_slot in free_slots),
         "suggested_slots_to_quote": suggested,
         "all_open_slots": free_slots,
@@ -237,9 +334,11 @@ def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_na
         except Exception as e:
             sync_status = f"Local Queue (GCal error: {str(e)[:30]})"
 
+    formatted_date = format_human_date(date_str)
     record = {
         "clinician": clinician,
         "date": date_str,
+        "formatted_date": formatted_date,
         "slot_time": slot_time,
         "patient_name": patient_name,
         "patient_dob": patient_dob,
@@ -248,4 +347,10 @@ def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_na
         "sync_status": sync_status
     }
     LOCAL_BOOKINGS.append(record)
-    return {"success": True, "booking": record}
+    return {
+        "success": True,
+        "booking": record,
+        "formatted_date": formatted_date,
+        "message": f"Successfully booked {appointment_category} with {clinician} on {formatted_date} at {slot_time} for {patient_name}.",
+        "instruction": f"Tell the caller: 'I have booked your appointment with {clinician} for {formatted_date} at {slot_time}. Is there anything else I can help you with today?'"
+    }

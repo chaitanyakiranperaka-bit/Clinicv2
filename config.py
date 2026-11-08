@@ -78,14 +78,31 @@ BEDROCK_TOOLS = {
     ]
 }
 
-def build_system_prompt(caller_phone: str) -> str:
+def generate_calendar_reference(days_ahead: int = 14) -> str:
     now_dublin = datetime.now(DUBLIN_TZ)
-    today_iso = now_dublin.strftime("%Y-%m-%d")
-    today_str = now_dublin.strftime("%A, %d %B %Y")
-    tomorrow_dt = now_dublin + timedelta(days=1)
-    tomorrow_iso = tomorrow_dt.strftime("%Y-%m-%d")
-    tomorrow_str = tomorrow_dt.strftime("%A, %d %B %Y")
+    lines = [f"- Current Dublin Time: {now_dublin.strftime('%A, %d %B %Y %H:%M')}"]
+    lines.append("- UPCOMING 14-DAY CALENDAR SCHEDULE (Use this EXACT mapping of Day-of-Week to Date):")
+    for i in range(days_ahead):
+        dt = now_dublin + timedelta(days=i)
+        iso = dt.strftime("%Y-%m-%d")
+        day_num = dt.day
+        if 11 <= day_num <= 13:
+            suf = "th"
+        else:
+            suf = {1: "st", 2: "nd", 3: "rd"}.get(day_num % 10, "th")
+        full_str = dt.strftime(f"%A, {day_num}{suf} %B %Y")
+        tag = ""
+        if i == 0:
+            tag = " [TODAY]"
+        elif i == 1:
+            tag = " [TOMORROW]"
+        if dt.weekday() == 6:
+            tag += " (CLINIC CLOSED - SUNDAY)"
+        lines.append(f"  * {full_str} -> {iso}{tag}")
+    return "\n".join(lines)
 
+def build_system_prompt(caller_phone: str) -> str:
+    cal_schedule = generate_calendar_reference(14)
     matched = KNOWN_PATIENTS.get(caller_phone)
     caller_ctx = (
         f"Caller is known patient '{matched['name']}' (DOB: {matched['dob']}). Verify identity and confirm DOB before booking."
@@ -97,19 +114,18 @@ def build_system_prompt(caller_phone: str) -> str:
         "You are Deirdre, automated voice receptionist at Star Dental & GP Clinic in Clonsilla, Dublin 15, Ireland. "
         "Keep replies strictly to 1 or 2 natural, concise sentences. "
         "NEVER use emojis, emoticons, symbols, markdown, bullet points, or backticks. Speak strictly in plain spoken English words.\n\n"
-        f"CALENDAR CONTEXT:\n"
-        f"- Today is {today_str} (ISO: {today_iso}).\n"
-        f"- Tomorrow is {tomorrow_str} (ISO: {tomorrow_iso}).\n"
-        f"- Always use {today_iso} or {tomorrow_iso} for dates. Never use past years.\n"
+        f"CALENDAR & DATE REFERENCE:\n"
+        f"{cal_schedule}\n\n"
         f"- Operating Hours: Monday to Saturday 09:00 to 17:00. The clinic is CLOSED on Sundays (direct urgent issues to D-Doc/K-Doc).\n"
         f"- Caller Context: {caller_ctx}\n\n"
         "CLINICAL & FUNCTION-CALLING RULES:\n"
-        "1. AVAILABILITY: Whenever the caller mentions or asks about ANY time (e.g. '1030', '10:30', 'afternoon', 'You have a 1030 slot'), you MUST call `check_calendar_slots` with `time_preference` set to that time. Always strictly follow the tool's `availability_verdict` and `instruction`. If the tool says a slot is AVAILABLE, it IS available — never tell the caller it is unavailable!\n"
-        "2. EXPLICIT CONFIRMATION BEFORE BOOKING: You MUST NEVER call `book_calendar_slot` without getting explicit confirmation first. "
+        "1. DATES & CALENDAR LOOKUP: When caller mentions any day (e.g. 'Monday', 'Tuesday', 'Friday', 'the 9th', '12th Nov'), consult the UPCOMING CALENDAR SCHEDULE above to find the exact YYYY-MM-DD date. NEVER guess or invent dates. Never book past dates. Always quote the full day and date from the tool instruction (e.g. 'Friday, 13th November').\n"
+        "2. AVAILABILITY: Whenever the caller mentions or asks about ANY time (e.g. '1030', '10:30', 'afternoon', 'You have a 1030 slot'), you MUST call `check_calendar_slots` with `time_preference` set to that time. Always strictly follow the tool's `availability_verdict` and `instruction`. If the tool says a slot is AVAILABLE, it IS available — never tell the caller it is unavailable!\n"
+        "3. EXPLICIT CONFIRMATION BEFORE BOOKING: You MUST NEVER call `book_calendar_slot` without getting explicit confirmation first. "
         "When an available time is identified, explicitly quote the clinician, date, and time to the caller and ask for confirmation: "
         "'I have [Date] at [Time] available with [Clinician]. Would you like me to book that for you?' "
         "ONLY invoke `book_calendar_slot` when the caller explicitly responds with confirmation (such as 'Yes', 'Please book it', 'Go ahead').\n"
-        "3. RED FLAGS: If patient reports chest pain, breathlessness, stroke signs (FAST), or heavy bleeding, call `trigger_emergency_divert` and say: "
+        "4. RED FLAGS: If patient reports chest pain, breathlessness, stroke signs (FAST), or heavy bleeding, call `trigger_emergency_divert` and say: "
         "'This sounds like an emergency. Please hang up immediately and dial 999 or 112 for an ambulance.'\n"
-        "4. ROUTING: Dr. Yousuf = Routine GP; Dentist Shailaja = Dental; Nurse Kelly = Bloods, smears, vaccines."
+        "5. ROUTING: Dr. Yousuf = Routine GP; Dentist Shailaja = Dental; Nurse Kelly = Bloods, smears, vaccines."
     )

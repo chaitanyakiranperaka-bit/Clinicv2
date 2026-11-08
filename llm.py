@@ -1,7 +1,7 @@
 import os
 import json
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 import boto3
 from botocore.config import Config
 from config import AWS_REGION, BEDROCK_MODEL_ID, BEDROCK_TOOLS, DUBLIN_TZ, KNOWN_PATIENTS
@@ -11,14 +11,24 @@ print(f"[INIT LLM] Connecting to Bedrock ({AWS_REGION} | {BEDROCK_MODEL_ID})..."
 boto_config = Config(connect_timeout=4, read_timeout=12, retries={"max_attempts": 1})
 bedrock_client = boto3.client("bedrock-runtime", region_name=AWS_REGION, config=boto_config)
 
-def normalize_date(date_str: str) -> str:
-    """Safely normalizes input date string to YYYY-MM-DD in Dublin timezone."""
-    today_iso = datetime.now(DUBLIN_TZ).strftime("%Y-%m-%d")
+def normalize_date(date_str: str, user_text: str = "") -> str:
+    """Safely normalizes input date string to YYYY-MM-DD in Dublin timezone, preventing past dates and hallucinated weekdays."""
+    now_dublin = datetime.now(DUBLIN_TZ)
+    today_iso = now_dublin.strftime("%Y-%m-%d")
+
+    # If the caller verbally requested a specific day/date, resolve it deterministically:
+    detected_date = calendar_service.parse_date_preference(user_text, now_dublin) if user_text else None
+    if detected_date:
+        return detected_date
+
     if not date_str or not isinstance(date_str, str):
         return today_iso
     try:
-        dt = datetime.strptime(date_str.strip(), "%Y-%m-%d")
-        if dt.year < 2026:
+        dt = datetime.strptime(date_str.strip(), "%Y-%m-%d").replace(tzinfo=DUBLIN_TZ)
+        # Prevent past dates! If an LLM hallucinated a past date, fall back to today or next open clinic day
+        if dt.date() < now_dublin.date():
+            if now_dublin.weekday() == 6:
+                return (now_dublin + timedelta(days=1)).strftime("%Y-%m-%d")
             return today_iso
         return dt.strftime("%Y-%m-%d")
     except Exception:
@@ -59,20 +69,21 @@ async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on
 
                 matched = KNOWN_PATIENTS.get(caller_phone)
 
+                last_user_text = ""
+                for m in reversed(messages):
+                    if m.get("role") == "user":
+                        for c in m.get("content", []):
+                            if isinstance(c, dict) and "text" in c:
+                                last_user_text = c["text"]
+                                break
+                        if last_user_text:
+                            break
+
                 if t_name == "check_calendar_slots":
-                    target_date = normalize_date(t_in.get("date"))
+                    target_date = normalize_date(t_in.get("date"), last_user_text)
                     raw_pref = t_in.get("time_preference")
                     # If time_preference was not passed or is generic, check if the caller mentioned a time
                     if not raw_pref or raw_pref in ("any", "morning", "afternoon"):
-                        last_user_text = ""
-                        for m in reversed(messages):
-                            if m.get("role") == "user":
-                                for c in m.get("content", []):
-                                    if isinstance(c, dict) and "text" in c:
-                                        last_user_text = c["text"]
-                                        break
-                                if last_user_text:
-                                    break
                         detected_time = calendar_service.parse_time_preference(last_user_text)
                         if detected_time:
                             raw_pref = detected_time
@@ -84,7 +95,7 @@ async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on
                         raw_pref or "any"
                     )
                 elif t_name == "book_calendar_slot":
-                    target_date = normalize_date(t_in.get("date"))
+                    target_date = normalize_date(t_in.get("date"), last_user_text)
                     res_data = await asyncio.to_thread(
                         calendar_service.book_calendar_slot,
                         t_in.get("clinician", "Dr. Yousuf"),
