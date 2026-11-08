@@ -304,7 +304,15 @@ async def call_websocket(websocket: WebSocket):
                         min_rms = 0.008        # Filters low-level mic hum
 
                     pre_speech_buffer.append(window)
-                    is_speech_frame = (prob > threshold) and (rms > min_rms) and (not in_grace_period)
+
+                    # Determine speech frames with Hysteresis:
+                    # 1. Initiation: To START speech, require high confidence (prob > threshold, rms > min_rms)
+                    # 2. Continuation (Hysteresis): Once speech has begun, maintain speech even during softer
+                    #    trailing vowels, hesitations, or thinking sounds (prob > 0.35, rms > 0.005).
+                    if not in_speech:
+                        is_speech_frame = (prob > threshold) and (rms > min_rms) and (not in_grace_period)
+                    else:
+                        is_speech_frame = (prob > 0.35) and (rms > 0.005)
 
                     if is_speech_frame:
                         speech_streak += 1
@@ -325,26 +333,28 @@ async def call_websocket(websocket: WebSocket):
                         else:
                             if in_speech:
                                 speech_buffer.append(window)
+
+                        # While continuing to speak or vocalize, keep silence counter reset
+                        if in_speech:
+                            silence_frames = 0
                     else:
                         speech_streak = 0
                         if in_speech:
                             speech_buffer.append(window)
                             silence_frames += 1
 
-                            # Conversational pause threshold:
-                            # If caller spoke only a short phrase (< 1.5s total audio), allow ~1.05s pause (33 frames)
-                            # to think/hesitate without getting cut off.
-                            # For longer turns, allow ~864ms (27 frames).
-                            total_spoken_frames = len(speech_buffer)
-                            required_silence = 33 if total_spoken_frames < 45 else 27
+                            # Generous conversational pause threshold:
+                            # 38 frames = ~1.22 seconds of confirmed silence before concluding the turn.
+                            # Gives callers plenty of time to pause, hesitate, and speak freely without interruption.
+                            REQUIRED_SILENCE_FRAMES = 38
 
-                            if silence_frames >= required_silence:
+                            if silence_frames >= REQUIRED_SILENCE_FRAMES:
                                 in_speech = False
                                 silence_frames = 0
                                 await send_json({"type": "vad_state", "speaking": False})
 
-                                # Trim excess trailing silence (keep ~190ms natural tail padding)
-                                trim_frames = max(0, required_silence - 6)
+                                # Trim excess trailing silence (keep ~200ms natural tail padding)
+                                trim_frames = max(0, REQUIRED_SILENCE_FRAMES - 6)
                                 full_turn = np.concatenate(speech_buffer)
                                 if trim_frames > 0 and len(full_turn) > trim_frames * 512:
                                     full_turn = full_turn[:-trim_frames * 512]
