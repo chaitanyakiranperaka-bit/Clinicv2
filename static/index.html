@@ -34,6 +34,9 @@
     .msg-tool { color: #fcd34d; font-size: 0.8rem; font-family: monospace; }
     .msg-alert { background: #7f1d1d; color: #fecaca; padding: 8px 12px; border-radius: 8px; font-weight: 600; }
     .sec-warning { background: #7f1d1d; color: #fecaca; border: 1px solid #ef4444; padding: 10px; border-radius: 8px; font-size: 0.8rem; margin-bottom: 12px; display: none; }
+    .audio-guard-box { width: 100%; margin-bottom: 16px; background: #0f172a; padding: 10px 14px; border-radius: 12px; border: 1px solid #334155; }
+    .toggle-label { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; font-weight: 600; color: #38bdf8; cursor: pointer; }
+    .toggle-sub { font-size: 0.72rem; color: #94a3b8; margin-top: 4px; line-height: 1.35; }
     table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
     th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #334155; }
     th { color: #94a3b8; font-weight: 600; }
@@ -59,6 +62,14 @@
         <option value="+353869876543">+353 86 987 6543 (Known: Aoife Kelly)</option>
         <option value="+353850001122">+353 85 000 1122 (New Patient)</option>
       </select>
+    </div>
+
+    <div class="audio-guard-box">
+      <label class="toggle-label">
+        <input type="checkbox" id="speakerEchoGuard" checked>
+        <span>🛡️ Laptop Speaker Echo Guard</span>
+      </label>
+      <div class="toggle-sub">Prevents laptop speakers from cutting off Deirdre. Uncheck if wearing headphones.</div>
     </div>
 
     <div class="vad-ring" id="vadRing">📞</div>
@@ -161,6 +172,7 @@ registerProcessor("clinic-audio-processor", ClinicAudioProcessor);
     const transcriptEl = document.getElementById("transcript");
     const bookingsBody = document.getElementById("bookingsBody");
     const callerIdSelect = document.getElementById("callerIdSelect");
+    const speakerEchoGuardEl = document.getElementById("speakerEchoGuard");
     const secWarning = document.getElementById("secWarning");
 
     // Check secure context
@@ -302,6 +314,9 @@ registerProcessor("clinic-audio-processor", ClinicAudioProcessor);
 
             processor.onaudioprocess = (e) => {
               if (!ws || ws.readyState !== WebSocket.OPEN) return;
+              if (speakerEchoGuardEl && speakerEchoGuardEl.checked && isPlayingAudio) {
+                return; // Guard: mute mic transmission while bot is speaking through laptop speakers
+              }
               const input32 = e.inputBuffer.getChannelData(0);
               const pcm16k = resampleTo16k(input32, audioCtx.sampleRate);
               ws.send(pcm16k.buffer);
@@ -318,6 +333,9 @@ registerProcessor("clinic-audio-processor", ClinicAudioProcessor);
               processor = new AudioWorkletNode(audioCtx, "clinic-audio-processor");
               processor.port.onmessage = (e) => {
                 if (ws && ws.readyState === WebSocket.OPEN) {
+                  if (speakerEchoGuardEl && speakerEchoGuardEl.checked && isPlayingAudio) {
+                    return; // Guard: mute mic transmission while bot is speaking through laptop speakers
+                  }
                   ws.send(e.data);
                 }
               };

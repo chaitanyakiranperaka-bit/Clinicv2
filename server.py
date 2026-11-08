@@ -63,7 +63,7 @@ def split_into_sentences(text: str) -> list:
         cleaned = cleaned.replace(abbr, repl)
 
     raw_sentences = re.split(r'([.!?]+(?:\s+|$))', cleaned)
-    result = []
+    tokens = []
     current = ""
     for token in raw_sentences:
         current += token
@@ -72,15 +72,27 @@ def split_into_sentences(text: str) -> list:
             for abbr, repl in abbrevs.items():
                 sent = sent.replace(repl, abbr)
             if sent:
-                result.append(sent)
+                tokens.append(sent)
             current = ""
     if current.strip():
         sent = current.strip()
         for abbr, repl in abbrevs.items():
             sent = sent.replace(repl, abbr)
-        result.append(sent)
+        tokens.append(sent)
 
-    return result if result else [text.strip()]
+    # Merge very short introductory fragments (e.g. "Yes, Sean.", "Of course.") into the next sentence
+    merged = []
+    i = 0
+    while i < len(tokens):
+        s = tokens[i].strip()
+        if len(s.split()) <= 3 and i + 1 < len(tokens):
+            merged.append(f"{s} {tokens[i+1].strip()}")
+            i += 2
+        else:
+            merged.append(s)
+            i += 1
+
+    return merged if merged else [text.strip()]
 
 @app.get("/")
 async def get_index():
