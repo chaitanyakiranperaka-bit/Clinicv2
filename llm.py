@@ -35,6 +35,55 @@ def normalize_date(date_str: str, user_text: str = "") -> str:
     except Exception:
         return today_iso
 
+def resolve_agreed_slot_time(tool_input: dict, messages: list) -> str:
+    """Extracts slot_time from tool_input or scans conversation history backwards for the agreed time."""
+    raw_slot = tool_input.get("slot_time")
+    if raw_slot:
+        parsed = calendar_service.parse_time_preference(raw_slot)
+        if parsed:
+            return parsed
+
+    # If missing from tool_input, search backwards in conversation history for the quoted time
+    for m in reversed(messages):
+        content = m.get("content", [])
+        for block in content:
+            txt = ""
+            if isinstance(block, dict) and "text" in block:
+                txt = block["text"]
+            elif isinstance(block, str):
+                txt = block
+            if txt:
+                parsed = calendar_service.parse_time_preference(txt)
+                if parsed:
+                    return parsed
+    return "09:00"
+
+def resolve_agreed_date(tool_input: dict, messages: list) -> str:
+    """Extracts date from tool_input or scans conversation history backwards for the agreed date."""
+    now_dublin = datetime.now(DUBLIN_TZ)
+    raw_date = tool_input.get("date")
+    if raw_date:
+        try:
+            dt = datetime.strptime(raw_date.strip(), "%Y-%m-%d").replace(tzinfo=DUBLIN_TZ)
+            if dt.date() >= now_dublin.date():
+                return dt.strftime("%Y-%m-%d")
+        except Exception:
+            pass
+
+    for m in reversed(messages):
+        content = m.get("content", [])
+        for block in content:
+            txt = ""
+            if isinstance(block, dict) and "text" in block:
+                txt = block["text"]
+            elif isinstance(block, str):
+                txt = block
+            if txt:
+                parsed = calendar_service.parse_date_preference(txt, now_dublin)
+                if parsed:
+                    return parsed
+    return now_dublin.strftime("%Y-%m-%d")
+
 def extract_text_tool_calls(text: str):
     """
     Extracts XML-style (<function=NAME> <parameter=KEY> VAL </parameter> </function>)
@@ -153,11 +202,11 @@ async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on
                 raw_pref or "any"
             )
         elif t_name == "book_calendar_slot":
-            target_date = normalize_date(t_in.get("date"), last_user_text)
+            target_date = resolve_agreed_date(t_in, messages)
+            slot_time = resolve_agreed_slot_time(t_in, messages)
             patient_name = t_in.get("patient_name") or (matched["name"] if matched else "Caller")
             patient_dob = t_in.get("patient_dob") or (matched["dob"] if matched else "Unknown")
             cat = t_in.get("appointment_category") or "Routine GP"
-            slot_time = t_in.get("slot_time", "09:00")
             clinician = t_in.get("clinician", "Dr. Yousuf")
             res = await asyncio.to_thread(
                 calendar_service.book_calendar_slot,
@@ -222,11 +271,13 @@ async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on
 
             if tc["name"] == "book_calendar_slot":
                 if res_data.get("success"):
-                    time_spoken = res_data.get("spoken_time") or calendar_service.format_spoken_time(tc['input'].get('slot_time', '10:30'))
+                    clinician_booked = res_data["booking"].get("clinician", tc["input"].get("clinician", "Dr. Yousuf"))
+                    date_booked = res_data.get("formatted_date", tc["input"].get("date"))
+                    time_booked = res_data.get("spoken_time") or calendar_service.format_spoken_time(res_data["booking"].get("slot_time", "10:00"))
                     spoken = (
-                        f"Your appointment with {tc['input'].get('clinician', 'Dr. Yousuf')} has been "
-                        f"booked for {res_data.get('formatted_date', tc['input'].get('date'))} at "
-                        f"{time_spoken}. Is there anything else I can assist you with today?"
+                        f"Your appointment with {clinician_booked} has been "
+                        f"booked for {date_booked} at "
+                        f"{time_booked}. Is there anything else I can assist you with today?"
                     )
                 else:
                     err = res_data.get("error", "that slot could not be booked")
