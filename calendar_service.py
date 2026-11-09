@@ -101,6 +101,26 @@ def parse_time_preference(pref: str):
 
     return None
 
+def format_spoken_time(slot_str: str) -> str:
+    """Converts 24h HH:MM string to natural spoken format:
+    '09:00' -> '9 am'
+    '09:15' -> '9:15 am'
+    '13:00' -> '1 pm'
+    '13:15' -> '1:15 pm'
+    """
+    if not slot_str or not isinstance(slot_str, str):
+        return slot_str
+    m = re.match(r"^([01]?\d|2[0-3]):([0-5]\d)$", slot_str.strip())
+    if not m:
+        return slot_str
+    h = int(m.group(1))
+    mins = int(m.group(2))
+    period = "am" if h < 12 else "pm"
+    h12 = h if 1 <= h <= 12 else (h - 12 if h > 12 else 12)
+    if mins == 0:
+        return f"{h12} {period}"
+    return f"{h12}:{mins:02d} {period}"
+
 def format_human_date(date_str: str) -> str:
     """Formats '2026-11-13' as 'Friday, 13th November 2026'."""
     try:
@@ -239,6 +259,7 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
     target_slot = parse_time_preference(pref)
 
     if target_slot:
+        target_spoken = format_spoken_time(target_slot)
         exact_available = target_slot in free_slots
 
         def distance(s):
@@ -249,30 +270,34 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
         closest = sorted(free_slots, key=distance)[:3]
         if exact_available:
             suggested = [target_slot]
-            status_msg = f"{target_slot} is AVAILABLE with {clinician} on {formatted_date}."
+            status_msg = f"{target_spoken} is AVAILABLE with {clinician} on {formatted_date}."
             instruction = (
-                f"Tell the caller: 'Yes, {target_slot} is available with {clinician} on {formatted_date}. "
+                f"Tell the caller: 'Yes, {target_spoken} is available with {clinician} on {formatted_date}. "
                 "Would you like me to book that for you?' Wait for their explicit confirmation."
             )
         else:
             suggested = sorted(closest)
-            status_msg = f"{target_slot} is NOT available with {clinician} on {formatted_date}. Closest alternative times on {formatted_date} are: {', '.join(suggested)}."
+            suggested_spoken = [format_spoken_time(s) for s in suggested]
+            status_msg = f"{target_spoken} is NOT available with {clinician} on {formatted_date}. Closest alternative times on {formatted_date} are: {', '.join(suggested_spoken)}."
             instruction = (
-                f"Tell the caller: '{target_slot} is not available with {clinician} on {formatted_date}, but I have {', '.join(suggested)} open. "
+                f"Tell the caller: '{target_spoken} is not available with {clinician} on {formatted_date}, but I have {', '.join(suggested_spoken)} open. "
                 "Would one of those times suit you?'"
             )
     elif "morning" in pref:
         suggested = morning[:3] if morning else afternoon[:3]
-        status_msg = f"Available morning slots with {clinician} on {formatted_date}: {', '.join(suggested)}"
-        instruction = f"Quote 2 or 3 of these morning times on {formatted_date}: {', '.join(suggested)}."
+        suggested_spoken = [format_spoken_time(s) for s in suggested]
+        status_msg = f"Available morning slots with {clinician} on {formatted_date}: {', '.join(suggested_spoken)}"
+        instruction = f"Quote 2 or 3 of these morning times on {formatted_date}: {', '.join(suggested_spoken)}."
     elif "afternoon" in pref:
         suggested = afternoon[:3] if afternoon else morning[:3]
-        status_msg = f"Available afternoon slots with {clinician} on {formatted_date}: {', '.join(suggested)}"
-        instruction = f"Quote 2 or 3 of these afternoon times on {formatted_date}: {', '.join(suggested)}."
+        suggested_spoken = [format_spoken_time(s) for s in suggested]
+        status_msg = f"Available afternoon slots with {clinician} on {formatted_date}: {', '.join(suggested_spoken)}"
+        instruction = f"Quote 2 or 3 of these afternoon times on {formatted_date}: {', '.join(suggested_spoken)}."
     else:
         suggested = (morning[:2] + afternoon[:2]) if (morning and afternoon) else free_slots[:3]
-        status_msg = f"Available slots with {clinician} on {formatted_date}: {', '.join(suggested)}"
-        instruction = f"Quote 2 or 3 of these times on {formatted_date}: {', '.join(suggested)}. Ask which time they prefer."
+        suggested_spoken = [format_spoken_time(s) for s in suggested]
+        status_msg = f"Available slots with {clinician} on {formatted_date}: {', '.join(suggested_spoken)}"
+        instruction = f"Quote 2 or 3 of these times on {formatted_date}: {', '.join(suggested_spoken)}. Ask which time they prefer."
 
     return {
         "status": "success",
@@ -335,11 +360,13 @@ def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_na
             sync_status = f"Local Queue (GCal error: {str(e)[:30]})"
 
     formatted_date = format_human_date(date_str)
+    spoken_time = format_spoken_time(slot_time)
     record = {
         "clinician": clinician,
         "date": date_str,
         "formatted_date": formatted_date,
         "slot_time": slot_time,
+        "spoken_time": spoken_time,
         "patient_name": patient_name,
         "patient_dob": patient_dob,
         "phone": caller_phone,
@@ -351,6 +378,7 @@ def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_na
         "success": True,
         "booking": record,
         "formatted_date": formatted_date,
-        "message": f"Successfully booked {appointment_category} with {clinician} on {formatted_date} at {slot_time} for {patient_name}.",
-        "instruction": f"Tell the caller: 'I have booked your appointment with {clinician} for {formatted_date} at {slot_time}. Is there anything else I can help you with today?'"
+        "spoken_time": spoken_time,
+        "message": f"Successfully booked {appointment_category} with {clinician} on {formatted_date} at {spoken_time} for {patient_name}.",
+        "instruction": f"Tell the caller: 'I have booked your appointment with {clinician} for {formatted_date} at {spoken_time}. Is there anything else I can help you with today?'"
     }

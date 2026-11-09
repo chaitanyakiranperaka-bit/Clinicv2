@@ -34,12 +34,27 @@ def strip_emojis(text: str) -> str:
     cleaned = re.sub(r"\s+([.,!?:;])", r"\1", cleaned)
     return re.sub(r"\s+", " ", cleaned).strip()
 
+def verbalize_spoken_times(text: str) -> str:
+    """Replaces raw 24h clock times like '09:00', '13:15' with natural spoken times '9 am', '1:15 pm'."""
+    def _repl(match):
+        h = int(match.group(1))
+        mins = int(match.group(2))
+        period = "am" if h < 12 else "pm"
+        h12 = h if 1 <= h <= 12 else (h - 12 if h > 12 else 12)
+        if mins == 0:
+            return f"{h12} {period}"
+        return f"{h12}:{mins:02d} {period}"
+
+    pattern = r"\b([01]?\d|2[0-3]):([0-5]\d)(?!\s*(?:am|pm))\b"
+    return re.sub(pattern, _repl, text, flags=re.IGNORECASE)
+
 def synthesize_wav_base64(text: str) -> str:
     clean = re.sub(r"^(Deirdre|Receptionist|Assistant|Doctor):\s*", "", text, flags=re.IGNORECASE).strip()
     clean = re.sub(r"`[^`]*`", "", clean).strip()
     # Strip any XML/HTML tags like <function=...>, <parameter=...>, <tool_call>, etc.
     clean = re.sub(r"<[^>]+>", " ", clean)
     clean = strip_emojis(clean)
+    clean = verbalize_spoken_times(clean)
     clean = re.sub(r"\s+", " ", clean).strip()
     if not clean:
         return ""

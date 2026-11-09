@@ -222,10 +222,11 @@ async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on
 
             if tc["name"] == "book_calendar_slot":
                 if res_data.get("success"):
+                    time_spoken = res_data.get("spoken_time") or calendar_service.format_spoken_time(tc['input'].get('slot_time', '10:30'))
                     spoken = (
                         f"Your appointment with {tc['input'].get('clinician', 'Dr. Yousuf')} has been "
                         f"booked for {res_data.get('formatted_date', tc['input'].get('date'))} at "
-                        f"{tc['input'].get('slot_time', '10:30')}. Is there anything else I can assist you with today?"
+                        f"{time_spoken}. Is there anything else I can assist you with today?"
                     )
                 else:
                     err = res_data.get("error", "that slot could not be booked")
