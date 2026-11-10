@@ -22,3 +22,4 @@ __all__ = [
     "check_dentally_slots",
     "list_upcoming_appointments"
 ]
+
