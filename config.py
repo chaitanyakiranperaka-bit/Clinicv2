@@ -8,23 +8,6 @@ BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "qwen.qwen3-coder-30b-a3b-v1:0"
 GOOGLE_CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID", "chaitanyakiran.peraka@gmail.com")
 SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "/home/ubuntu/service_account.json")
 
-# Dentally NexGen API configuration
-DENTALLY_BASE_URL = os.getenv("DENTALLY_BASE_URL", "https://api.dentally.co")
-DENTALLY_AUTH_URL = os.getenv("DENTALLY_AUTH_URL", f"{DENTALLY_BASE_URL}/v2/oauth/token")
-DENTALLY_CLIENT_ID = os.getenv("DENTALLY_CLIENT_ID", "i4lyH4DVaMuaGVXkUUzhvPjuWDNgQQT3ZvWkEbtsjAR20cGH")
-DENTALLY_CLIENT_SECRET = os.getenv("DENTALLY_CLIENT_SECRET", "bJEiC0egABhVlsaph85kEF3Ee5o1rbT8T5OraxpeWIV0tdBuoP8o0aFkAkmK9TW4")
-DENTALLY_PRACTICE_ID = os.getenv("DENTALLY_PRACTICE_ID", "00b65f88-49df-48a3-b949-bc195e592593")
-DENTALLY_API_VERSION = "2026-01-01"
-
-DENTALLY_PRACTITIONERS = {
-    "Dentist Shailaja": "16c136c6-f2f1-4fa9-9d7b-a5527539c506",
-    "Shailja Sharma": "16c136c6-f2f1-4fa9-9d7b-a5527539c506",
-    "Reihaneh Afrasaiabi": "1181fe00-8cda-4635-9677-8709e7b0e0ab",
-    "Aubrey Agang": "90541d1b-e9f2-4858-a8a1-384ca6a817fd",
-    "Salma Naz": "f1ab2bde-4aad-4f00-8366-02e492549126",
-    "Sani Dangaji": "28fe5c81-405f-4fed-a3ff-6383f6c1d2c1",
-}
-
 KNOWN_PATIENTS = {
     "+353871234567": {"name": "Sean Murphy", "dob": "14/03/1982"},
     "+353869876543": {"name": "Aoife Kelly", "dob": "22/08/1990"},

@@ -2,7 +2,6 @@ import os
 import re
 from datetime import datetime, timedelta
 from config import DUBLIN_TZ, GOOGLE_CALENDAR_ID, SERVICE_ACCOUNT_FILE, CLINICIANS, ALL_DAILY_SLOTS
-from dentally_service import is_dentally_practitioner, fetch_dentally_free_slots
 
 try:
     from google.oauth2 import service_account
@@ -231,19 +230,10 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
             "message": f"The clinic is closed on Sundays ({formatted_date}). Please offer {next_monday_fmt} ({next_monday_iso}) or advise D-Doc/K-Doc GP cooperative for urgent issues."
         }
 
-    # 2. Check slots from Dentally (if dental clinician) or Google Calendar (for GP/Nurse)
-    free_slots = None
-    if is_dentally_practitioner(clinician):
-        dentally_slots = fetch_dentally_free_slots(clinician, date_str)
-        if dentally_slots is not None:
-            # Filter any local unconfirmed/provisional bookings from current session
-            local_booked = {b["slot_time"] for b in LOCAL_BOOKINGS if b["clinician"] == clinician and b["date"] == date_str}
-            free_slots = [s for s in dentally_slots if s not in local_booked]
-            print(f"[Dentally Live Slots]: Found {len(free_slots)} open slots for {clinician} on {date_str}", flush=True)
-
-    if free_slots is None:
-        booked = list_booked_slots_for_date(clinician, date_str)
-        free_slots = [s for s in ALL_DAILY_SLOTS if s not in booked]
+    booked = list_booked_slots_for_date(clinician, date_str)
+    
+    # 2. Filter out already booked slots
+    free_slots = [s for s in ALL_DAILY_SLOTS if s not in booked]
 
     # 3. If query date is today, filter out past slots (plus 15-minute buffer)
     now_dublin = datetime.now(DUBLIN_TZ)

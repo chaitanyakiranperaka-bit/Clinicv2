@@ -1,4 +1,3 @@
-import os
 import json
 import time
 import ssl
@@ -7,7 +6,7 @@ import urllib.parse
 import urllib.error
 from typing import Dict, Any, Optional, List
 
-from config import (
+from dentally_config import (
     DENTALLY_BASE_URL,
     DENTALLY_AUTH_URL,
     DENTALLY_CLIENT_ID,
@@ -18,6 +17,7 @@ from config import (
 
 class DentallyClient:
     """Production-grade client for the Dentally NexGen REST API (v2026-01-01).
+    STRICTLY READ-ONLY ACCESS.
     
     Handles OAuth 2.0 Client Credentials token management, automatic refresh,
     and API calls scoped to the clinic's practice ID.
@@ -88,15 +88,13 @@ class DentallyClient:
             print(f"[Dentally Auth Network Error]: {e}", flush=True)
             raise RuntimeError(f"Dentally OAuth request failed: {e}")
 
-    def _request(
+    def _read_request(
         self,
-        method: str,
         path: str,
         params: Optional[Dict[str, Any]] = None,
-        json_data: Optional[Dict[str, Any]] = None,
         timeout: int = 10
     ) -> Dict[str, Any]:
-        """Makes an authenticated request to the Dentally NexGen API."""
+        """Makes an authenticated READ (GET) request to the Dentally NexGen API."""
         token = self.get_token()
         
         # Ensure path begins with /v2
@@ -123,8 +121,7 @@ class DentallyClient:
             "User-Agent": "StarClinicDentallyClient/1.0"
         }
 
-        data_bytes = json.dumps(json_data).encode("utf-8") if json_data is not None else None
-        req = urllib.request.Request(url, data=data_bytes, headers=headers, method=method.upper())
+        req = urllib.request.Request(url, headers=headers, method="GET")
 
         try:
             with urllib.request.urlopen(req, context=self._ssl_context, timeout=timeout) as resp:
@@ -132,19 +129,23 @@ class DentallyClient:
                 return json.loads(resp_text) if resp_text else {}
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="replace")
-            print(f"[Dentally API Error {e.code} on {method} {url}]: {err_body}", flush=True)
+            print(f"[Dentally API Error {e.code} on GET {url}]: {err_body}", flush=True)
             raise RuntimeError(f"Dentally API error ({e.code}): {err_body}")
         except Exception as e:
-            print(f"[Dentally Network Error on {method} {url}]: {e}", flush=True)
+            print(f"[Dentally Network Error on GET {url}]: {e}", flush=True)
             raise RuntimeError(f"Dentally connection error: {e}")
 
+    # =========================================================================
+    # READ ENDPOINTS ONLY (NO WRITE)
+    # =========================================================================
+
     def get_sites(self) -> List[Dict[str, Any]]:
-        """Returns the list of practice sites and details (address, opening hours)."""
-        res = self._request("GET", "/sites")
+        """GET /v2/sites: Returns practice sites, addresses, and opening hours."""
+        res = self._read_request("/sites")
         return res.get("data", [])
 
     def get_primary_site(self) -> Optional[Dict[str, Any]]:
-        """Returns the primary practice site, cached after first fetch."""
+        """Returns the primary practice site, cached after first read."""
         if self._cached_site:
             return self._cached_site
         sites = self.get_sites()
@@ -159,7 +160,7 @@ class DentallyClient:
         date_to: str,
         practitioner_ids: List[str]
     ) -> List[Dict[str, Any]]:
-        """Queries bookable availability windows for specified practitioner UUIDs.
+        """GET /v2/practitioners/availabilities: Queries bookable availability windows.
         
         Args:
             date_from: YYYY-MM-DD
@@ -173,15 +174,26 @@ class DentallyClient:
             "date_to": date_to,
             "practitioner_ids": practitioner_ids
         }
-        res = self._request("GET", "/practitioners/availabilities", params=params)
+        res = self._read_request("/practitioners/availabilities", params=params)
         return res.get("data", [])
 
     def get_appointments(self, limit: int = 20, cursor: Optional[str] = None) -> Dict[str, Any]:
-        """Retrieves recent/upcoming appointments."""
+        """GET /v2/appointments: Retrieves recent/upcoming appointments."""
         params = {"limit": limit}
         if cursor:
             params["cursor"] = cursor
-        return self._request("GET", "/appointments", params=params)
+        return self._read_request("/appointments", params=params)
+
+    def get_appointment_reasons(self) -> List[Dict[str, Any]]:
+        """GET /v2/appointment_reasons: Returns practice clinical visit reasons."""
+        res = self._read_request("/appointment_reasons")
+        return res.get("data", [])
+
+    def get_calendar_zones(self, date_from: str, date_to: str) -> List[Dict[str, Any]]:
+        """GET /v2/calendar_zones: Returns calendar zone blocks for date range."""
+        params = {"date_from": date_from, "date_to": date_to}
+        res = self._read_request("/calendar_zones", params=params)
+        return res.get("data", [])
 
 # Global singleton client instance
 dentally_client = DentallyClient()
