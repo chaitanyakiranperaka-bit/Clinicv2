@@ -1,6 +1,30 @@
 import os
+from pathlib import Path
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+
+def _load_dotenv_if_present():
+    """Lightweight zero-dependency .env loader that searches current & parent directories."""
+    cur = Path(__file__).resolve().parent
+    search_dirs = [cur, cur.parent, Path.cwd()]
+    for d in search_dirs:
+        env_file = d / ".env"
+        if env_file.is_file():
+            try:
+                with open(env_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k = k.strip()
+                            v = v.strip().strip("'\"")
+                            if k and k not in os.environ:
+                                os.environ[k] = v
+                break
+            except Exception:
+                pass
+
+_load_dotenv_if_present()
 
 DUBLIN_TZ = ZoneInfo("Europe/Dublin")
 AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "eu-west-1")
@@ -9,12 +33,13 @@ BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "qwen.qwen3-coder-30b-a3b-v1:0"
 # ==============================================================================
 # DENTALLY NEXGEN API (v2026-01-01) - TEST PRODUCTION CONFIGURATION
 # STRICTLY READ-ONLY ACCESS (No write operations)
+# Credentials loaded from .env or system environment (NEVER hardcoded in source)
 # ==============================================================================
 DENTALLY_BASE_URL = os.getenv("DENTALLY_BASE_URL", "https://api.dentally.co")
 DENTALLY_AUTH_URL = os.getenv("DENTALLY_AUTH_URL", f"{DENTALLY_BASE_URL}/v2/oauth/token")
-DENTALLY_CLIENT_ID = os.getenv("DENTALLY_CLIENT_ID", "i4lyH4DVaMuaGVXkUUzhvPjuWDNgQQT3ZvWkEbtsjAR20cGH")
-DENTALLY_CLIENT_SECRET = os.getenv("DENTALLY_CLIENT_SECRET", "bJEiC0egABhVlsaph85kEF3Ee5o1rbT8T5OraxpeWIV0tdBuoP8o0aFkAkmK9TW4")
-DENTALLY_PRACTICE_ID = os.getenv("DENTALLY_PRACTICE_ID", "00b65f88-49df-48a3-b949-bc195e592593")
+DENTALLY_CLIENT_ID = os.getenv("DENTALLY_CLIENT_ID", "")
+DENTALLY_CLIENT_SECRET = os.getenv("DENTALLY_CLIENT_SECRET", "")
+DENTALLY_PRACTICE_ID = os.getenv("DENTALLY_PRACTICE_ID", "")
 DENTALLY_API_VERSION = "2026-01-01"
 DENTALLY_SERVER_PORT = int(os.getenv("DENTALLY_SERVER_PORT", "8999"))
 

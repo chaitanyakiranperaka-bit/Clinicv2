@@ -19,8 +19,9 @@
 | **Practice UUID** | `00b65f88-49df-48a3-b949-bc195e592593` | Multi-tenant tenant identifier passed via `X-Practice-Id` |
 | **API Base URL** | `https://api.dentally.co` | Production UK endpoint |
 | **Auth Endpoint** | `https://api.dentally.co/v2/oauth/token` | Auth0-backed client credentials exchange |
-| **Client ID** | `i4lyH4DVaMuaGVXkUUzhvPjuWDNgQQT3ZvWkEbtsjAR20cGH` | Partner integration client ID |
-| **Client Secret** | `bJEiC0egABhVlsaph85kEF3Ee5o1rbT8T5OraxpeWIV0tdBuoP8o0aFkAkmK9TW4` | Partner client secret |
+| **Client ID** | *(Stored in `.env`)* | Environment variable `DENTALLY_CLIENT_ID` |
+| **Client Secret** | *(Stored in `.env`)* | Environment variable `DENTALLY_CLIENT_SECRET` |
+| **Practice UUID** | *(Stored in `.env`)* | Environment variable `DENTALLY_PRACTICE_ID` (`00b65f88-49df-48a3-b949-bc195e592593`) |
 | **API Version** | `2026-01-01` | Pinned revision header `Dentally-API-Version` |
 | **Granted Scopes**| `practitioner:availability:read`<br>`appointment:read`<br>`appointment:write`<br>`site:read`<br>`calendar:read`<br>`identifier_mapping:read` | Fixed partner permissions |
 
