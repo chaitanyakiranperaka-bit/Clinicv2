@@ -187,11 +187,24 @@ class DentallyClient:
         res = self._read_request("/practitioners/availabilities", params=params)
         return res.get("data", [])
 
-    def get_appointments(self, limit: int = 20, cursor: Optional[str] = None) -> Dict[str, Any]:
-        """GET /v2/appointments: Retrieves recent/upcoming appointments."""
+    def get_appointments(
+        self,
+        limit: int = 20,
+        cursor: Optional[str] = None,
+        start_time_from: Optional[str] = None,
+        start_time_to: Optional[str] = None,
+        practitioner_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """GET /v2/appointments: Retrieves appointments with optional date-time and practitioner filters."""
         params = {"limit": limit}
         if cursor:
             params["cursor"] = cursor
+        if start_time_from:
+            params["start_time_from"] = start_time_from
+        if start_time_to:
+            params["start_time_to"] = start_time_to
+        if practitioner_id:
+            params["practitioner_id"] = practitioner_id
         return self._read_request("/appointments", params=params)
 
     def get_appointment_reasons(self) -> List[Dict[str, Any]]:

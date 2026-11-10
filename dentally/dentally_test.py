@@ -12,23 +12,29 @@ _pkg_dir = os.path.dirname(os.path.abspath(__file__))
 if _pkg_dir not in sys.path:
     sys.path.insert(0, _pkg_dir)
 
+from datetime import datetime, timedelta
+
 try:
-    from .dentally_config import DENTALLY_PRACTITIONERS
+    from .dentally_config import DENTALLY_PRACTITIONERS, DUBLIN_TZ
     from .dentally_client import dentally_client
     from .dentally_service import (
         get_clinic_site_summary,
         fetch_dentally_free_slots,
         check_dentally_slots,
-        list_upcoming_appointments
+        list_upcoming_appointments,
+        get_appointments_for_date,
+        format_human_date
     )
 except ImportError:
-    from dentally_config import DENTALLY_PRACTITIONERS
+    from dentally_config import DENTALLY_PRACTITIONERS, DUBLIN_TZ
     from dentally_client import dentally_client
     from dentally_service import (
         get_clinic_site_summary,
         fetch_dentally_free_slots,
         check_dentally_slots,
-        list_upcoming_appointments
+        list_upcoming_appointments,
+        get_appointments_for_date,
+        format_human_date
     )
 
 def run_read_tests():
@@ -128,6 +134,27 @@ def run_read_tests():
             print(f"    - {r.get('id')}: {r.get('name')}")
     except Exception as e:
         print(f"  Error reading reasons: {e}")
+
+    # 8. Read All Appointments for Tomorrow
+    now_dublin = datetime.now(DUBLIN_TZ)
+    tomorrow_dt = now_dublin + timedelta(days=1)
+    tomorrow_iso = tomorrow_dt.strftime("%Y-%m-%d")
+    tomorrow_human = format_human_date(tomorrow_iso)
+    print(f"\n[8] Reading ALL Appointments for Tomorrow ({tomorrow_human} -> {tomorrow_iso}):")
+    tomorrow_appts = get_appointments_for_date(tomorrow_iso)
+    print(f"  Total appointments found: {len(tomorrow_appts)}")
+    if tomorrow_appts:
+        print(f"  {'Time (Dublin)':<15} | {'Practitioner':<22} | {'Patient':<24} | {'Reason':<22} | {'State':<10}")
+        print(f"  {'-'*15} | {'-'*22} | {'-'*24} | {'-'*22} | {'-'*10}")
+        for a in tomorrow_appts:
+            slot_str = a.get("time_slot_dublin", "N/A")
+            prac = (a.get("practitioner_name") or "Unknown")[:22]
+            pat = (a.get("patient_name") or "Unassigned")[:24]
+            reason = (a.get("reason_name") or "N/A")[:22]
+            state = a.get("state", "Pending")
+            print(f"  {slot_str:<15} | {prac:<22} | {pat:<24} | {reason:<22} | {state:<10}")
+    else:
+        print("  No appointments found for tomorrow.")
 
     print("\n" + "=" * 70)
     print(" ALL DENTALLY READ TESTS COMPLETED SUCCESSFULLY!")

@@ -265,3 +265,67 @@ def list_upcoming_appointments(limit: int = 10) -> List[Dict[str, Any]]:
         print(f"[Dentally Appointments Read Error]: {e}", flush=True)
         return []
 
+def get_appointments_for_date(date_str: Optional[str] = None) -> List[Dict[str, Any]]:
+    """READ: Retrieves all appointments scheduled for a specific date (YYYY-MM-DD).
+    If date_str is omitted, defaults to tomorrow.
+    Localizes start and finish timestamps to Europe/Dublin civil time.
+    """
+    if not dentally_client.is_configured():
+        return []
+    
+    if not date_str:
+        now_dublin = datetime.now(DUBLIN_TZ)
+        date_str = (now_dublin + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # Day window in UTC
+    start_utc = f"{date_str}T00:00:00Z"
+    finish_utc = f"{date_str}T23:59:59Z"
+
+    try:
+        res = dentally_client.get_appointments(
+            limit=100,
+            start_time_from=start_utc,
+            start_time_to=finish_utc
+        )
+        raw_appts = res.get("data", [])
+        
+        enriched = []
+        for a in raw_appts:
+            st_raw = a.get("start_time", "")
+            ft_raw = a.get("finish_time", "")
+            st_dublin = None
+            ft_dublin = None
+            if st_raw:
+                st_dublin = datetime.fromisoformat(st_raw.replace("Z", "+00:00")).astimezone(DUBLIN_TZ)
+            if ft_raw:
+                ft_dublin = datetime.fromisoformat(ft_raw.replace("Z", "+00:00")).astimezone(DUBLIN_TZ)
+            
+            pat = a.get("patient")
+            pat_name = f"{pat.get('first_name', '')} {pat.get('last_name', '')}".strip() if pat else "Unassigned / Block"
+            prac = a.get("practitioner")
+            prac_name = prac.get("name", "Unknown") if prac else "Unknown"
+            reason = a.get("reason")
+            reason_name = reason.get("name", "N/A") if reason else "N/A"
+
+            enriched.append({
+                "id": a.get("id"),
+                "start_time_utc": st_raw,
+                "finish_time_utc": ft_raw,
+                "start_dt": st_dublin,
+                "finish_dt": ft_dublin,
+                "time_slot_dublin": f"{st_dublin.strftime('%H:%M')} - {ft_dublin.strftime('%H:%M')}" if (st_dublin and ft_dublin) else "N/A",
+                "time_spoken": f"{format_spoken_time(st_dublin.strftime('%H:%M'))} to {format_spoken_time(ft_dublin.strftime('%H:%M'))}" if (st_dublin and ft_dublin) else "N/A",
+                "practitioner_name": prac_name,
+                "patient_name": pat_name,
+                "reason_name": reason_name,
+                "state": a.get("state", "Pending"),
+                "duration_minutes": a.get("duration_minutes", 0),
+                "raw": a
+            })
+        
+        enriched.sort(key=lambda x: x["start_dt"] if x["start_dt"] else datetime.min)
+        return enriched
+    except Exception as e:
+        print(f"[Dentally Appointments For Date Error on {date_str}]: {e}", flush=True)
+        return []
+

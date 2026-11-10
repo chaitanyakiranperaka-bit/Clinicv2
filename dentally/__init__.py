@@ -11,7 +11,8 @@ from .dentally_service import (
     get_clinic_site_summary,
     fetch_dentally_free_slots,
     check_dentally_slots,
-    list_upcoming_appointments
+    list_upcoming_appointments,
+    get_appointments_for_date
 )
 
 __all__ = [
@@ -20,6 +21,7 @@ __all__ = [
     "get_clinic_site_summary",
     "fetch_dentally_free_slots",
     "check_dentally_slots",
-    "list_upcoming_appointments"
+    "list_upcoming_appointments",
+    "get_appointments_for_date"
 ]
 
