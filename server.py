@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from silero_vad import load_silero_vad
 
 from config import build_system_prompt, KNOWN_PATIENTS, GOOGLE_CALENDAR_ID, BEDROCK_MODEL_ID
+from dentally_client import dentally_client
 import calendar_service
 import stt
 import tts
@@ -102,8 +103,10 @@ async def get_index():
 @app.get("/status")
 async def get_status():
     gcal_active = bool(calendar_service.get_gcal_service())
+    dentally_active = dentally_client.is_configured()
     return {
         "calendar_badge": f"🟢 Live GCal ({GOOGLE_CALENDAR_ID})" if gcal_active else "🟡 Local Staging Queue",
+        "dentally_badge": "🟢 Live Dentally PMS (Star Dental Care)" if dentally_active else "⚪ Dentally Inactive",
         "model_id": BEDROCK_MODEL_ID
     }
 
