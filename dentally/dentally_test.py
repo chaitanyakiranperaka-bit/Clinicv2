@@ -13,6 +13,7 @@ if _pkg_dir not in sys.path:
     sys.path.insert(0, _pkg_dir)
 
 try:
+    from .dentally_config import DENTALLY_PRACTITIONERS
     from .dentally_client import dentally_client
     from .dentally_service import (
         get_clinic_site_summary,
@@ -21,6 +22,7 @@ try:
         list_upcoming_appointments
     )
 except ImportError:
+    from dentally_config import DENTALLY_PRACTITIONERS
     from dentally_client import dentally_client
     from dentally_service import (
         get_clinic_site_summary,
@@ -67,21 +69,43 @@ def run_read_tests():
     else:
         print("  FAILED to read site info.")
 
-    # 4. Read Availability for Dentist Shailaja
-    print(f"\n[4] Reading Live Practitioner Availability (GET /v2/practitioners/availabilities):")
-    test_dates = ["2026-11-11", "2026-11-13"]
-    for td in test_dates:
-        slots = fetch_dentally_free_slots("Dentist Shailaja", td)
-        print(f"  Date {td} (Dentist Shailaja): {len(slots) if slots else 0} open slots found")
-        if slots:
-            print(f"    Available times: {', '.join(slots[:8])}{' ...' if len(slots) > 8 else ''}")
+    # 4. Read Live Practitioner Availability for all Dentally Practitioners
+    print(f"\n[4] Reading Live Availability for ALL Dentally Practitioners:")
+    test_dates = ["2026-11-11", "2026-11-12", "2026-11-13"]
 
-    # 5. High-Level Availability Turn Check
-    print(f"\n[5] Testing Conversational Availability Checker:")
-    result = check_dentally_slots("Dentist Shailaja", "2026-11-11", "10:00")
-    print(f"  Query: Wednesday 2026-11-11 at 10:00")
-    print(f"  Verdict: {result.get('availability_verdict')}")
-    print(f"  Instruction: {result.get('instruction')}")
+    # Deduplicate practitioners by UUID
+    seen_ids = set()
+    distinct_practitioners = []
+    for name, pid in DENTALLY_PRACTITIONERS.items():
+        if pid not in seen_ids:
+            seen_ids.add(pid)
+            display_name = f"Dentist Shailaja (Dr. Shailja Sharma)" if "Shail" in name else f"Dr. {name}"
+            distinct_practitioners.append((display_name, name, pid))
+
+    for display_name, lookup_name, pid in distinct_practitioners:
+        print(f"\n  • Practitioner: {display_name} (UUID: {pid})")
+        for td in test_dates:
+            slots = fetch_dentally_free_slots(lookup_name, td)
+            count = len(slots) if slots else 0
+            if count > 0:
+                preview = ", ".join(slots[:6]) + ("..." if count > 6 else "")
+                print(f"    - {td}: {count:2d} open slots | {preview}")
+            else:
+                print(f"    - {td}:  0 open slots (Off / Fully Booked)")
+
+    # 5. High-Level Conversational Availability Turn Check
+    print(f"\n[5] Testing Conversational Availability Checker (Sample turns across clinicians):")
+    sample_queries = [
+        ("Dentist Shailaja", "2026-11-11", "10:00"),
+        ("Reihaneh Afrasaiabi", "2026-11-11", "11:30"),
+        ("Aubrey Agang", "2026-11-12", "morning"),
+        ("Salma Naz", "2026-11-12", "14:00"),
+    ]
+    for c, d, t in sample_queries:
+        result = check_dentally_slots(c, d, t)
+        print(f"  • Query: {c} on {d} ({t})")
+        print(f"    Verdict: {result.get('availability_verdict')}")
+        print(f"    Instruction: {result.get('instruction')}")
 
     # 6. Read Live Appointments
     print(f"\n[6] Reading Live Appointments (GET /v2/appointments):")
