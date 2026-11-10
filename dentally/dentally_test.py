@@ -5,14 +5,29 @@ Strictly Read-Only (no bookings or mutations created).
 """
 
 import sys
+import os
 import json
-from dentally_client import dentally_client
-from dentally_service import (
-    get_clinic_site_summary,
-    fetch_dentally_free_slots,
-    check_dentally_slots,
-    list_upcoming_appointments
-)
+
+_pkg_dir = os.path.dirname(os.path.abspath(__file__))
+if _pkg_dir not in sys.path:
+    sys.path.insert(0, _pkg_dir)
+
+try:
+    from .dentally_client import dentally_client
+    from .dentally_service import (
+        get_clinic_site_summary,
+        fetch_dentally_free_slots,
+        check_dentally_slots,
+        list_upcoming_appointments
+    )
+except ImportError:
+    from dentally_client import dentally_client
+    from dentally_service import (
+        get_clinic_site_summary,
+        fetch_dentally_free_slots,
+        check_dentally_slots,
+        list_upcoming_appointments
+    )
 
 def run_read_tests():
     print("=" * 70)
@@ -96,3 +111,4 @@ def run_read_tests():
 
 if __name__ == "__main__":
     run_read_tests()
+

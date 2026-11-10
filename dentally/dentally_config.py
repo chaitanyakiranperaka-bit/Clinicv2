@@ -155,3 +155,4 @@ def build_dentally_system_prompt(caller_phone: str) -> str:
         "6. TOOL EXECUTION: When you need to call a tool, invoke the tool directly. NEVER write or speak XML tags, parameters, code, or function names (such as <function=...>, <tool_call>, or JSON) in your spoken output. The caller must only hear your natural, spoken English words.\n"
         "7. NATURAL SPOKEN TIMES: When speaking times aloud, always use natural 12-hour conversational format (e.g. say '9 am' instead of '09:00', '9:15 am' instead of '09:15', '1 pm' instead of '13:00', '1:15 pm' instead of '1:15 pm')."
     )
+

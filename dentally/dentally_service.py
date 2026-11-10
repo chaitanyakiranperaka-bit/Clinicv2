@@ -3,12 +3,20 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from zoneinfo import ZoneInfo
 
-from dentally_config import (
-    DUBLIN_TZ,
-    ALL_DAILY_SLOTS,
-    DENTALLY_PRACTITIONERS
-)
-from dentally_client import dentally_client
+try:
+    from .dentally_config import (
+        DUBLIN_TZ,
+        ALL_DAILY_SLOTS,
+        DENTALLY_PRACTITIONERS
+    )
+    from .dentally_client import dentally_client
+except ImportError:
+    from dentally_config import (
+        DUBLIN_TZ,
+        ALL_DAILY_SLOTS,
+        DENTALLY_PRACTITIONERS
+    )
+    from dentally_client import dentally_client
 
 def format_spoken_time(slot_str: str) -> str:
     """Converts 24h HH:MM string to natural spoken format:
@@ -256,3 +264,4 @@ def list_upcoming_appointments(limit: int = 10) -> List[Dict[str, Any]]:
     except Exception as e:
         print(f"[Dentally Appointments Read Error]: {e}", flush=True)
         return []
+

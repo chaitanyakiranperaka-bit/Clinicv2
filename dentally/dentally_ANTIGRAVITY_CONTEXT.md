@@ -56,12 +56,14 @@ Clinicv2_mac/
 ├── calendar_service.py              # Pure Google Calendar and local staging service
 ├── server.py                        # Pure Google Calendar FastAPI server & WebSocket
 │
-├── dentally_ANTIGRAVITY_CONTEXT.md  # THIS FILE: Dedicated Dentally production context
-├── dentally_config.py               # Dentally credentials, practice UUID, system prompt & tools
-├── dentally_client.py               # Pure READ-ONLY HTTP client with token caching (24h TTL)
-├── dentally_service.py              # Pure READ-ONLY business logic (availability, sites, appts)
-├── dentally_server.py               # Standalone FastAPI test server & dashboard (Port 8999)
-└── dentally_test.py                 # Standalone CLI verification test suite
+└── dentally/                        # DEDICATED DENTALLY PACKAGE FOLDER (Zero GCal overlap)
+    ├── __init__.py                  # Dentally package exports
+    ├── dentally_ANTIGRAVITY_CONTEXT.md # THIS FILE: Dedicated Dentally production context
+    ├── dentally_config.py           # Dentally credentials, practice UUID, system prompt & tools
+    ├── dentally_client.py           # Pure READ-ONLY HTTP client with token caching (24h TTL)
+    ├── dentally_service.py          # Pure READ-ONLY business logic (availability, sites, appts)
+    ├── dentally_server.py           # Standalone FastAPI test server & dashboard (Port 8999)
+    └── dentally_test.py             # Standalone CLI verification test suite
 ```
 
 ---
@@ -90,13 +92,18 @@ Clinicv2_mac/
 
 ### Running the CLI Test Suite
 ```bash
-python dentally_test.py
+# From workspace root:
+python dentally/dentally_test.py
+
+# Or from inside the dentally folder:
+cd dentally && python dentally_test.py
 ```
 *Expected Result*: Verifies token acquisition, site reading, live Dentist Shailaja open slots, appointment list, and appointment reasons with a summary status code 0.
 
 ### Running the Standalone Dentally Test Server
 ```bash
-python -m uvicorn dentally_server:app --host 0.0.0.0 --port 8999
+# From workspace root:
+python -m uvicorn dentally.dentally_server:app --host 0.0.0.0 --port 8999
 ```
 * Access Test UI: `http://localhost:8999/`
 * Health/Status endpoint: `http://localhost:8999/status`
@@ -109,3 +116,4 @@ python -m uvicorn dentally_server:app --host 0.0.0.0 --port 8999
 python -m uvicorn server:app --host 0.0.0.0 --port 8998
 ```
 * Operates completely independently with zero dependencies on Dentally.
+

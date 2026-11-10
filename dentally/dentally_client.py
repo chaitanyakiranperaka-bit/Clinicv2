@@ -6,14 +6,24 @@ import urllib.parse
 import urllib.error
 from typing import Dict, Any, Optional, List
 
-from dentally_config import (
-    DENTALLY_BASE_URL,
-    DENTALLY_AUTH_URL,
-    DENTALLY_CLIENT_ID,
-    DENTALLY_CLIENT_SECRET,
-    DENTALLY_PRACTICE_ID,
-    DENTALLY_API_VERSION
-)
+try:
+    from .dentally_config import (
+        DENTALLY_BASE_URL,
+        DENTALLY_AUTH_URL,
+        DENTALLY_CLIENT_ID,
+        DENTALLY_CLIENT_SECRET,
+        DENTALLY_PRACTICE_ID,
+        DENTALLY_API_VERSION
+    )
+except ImportError:
+    from dentally_config import (
+        DENTALLY_BASE_URL,
+        DENTALLY_AUTH_URL,
+        DENTALLY_CLIENT_ID,
+        DENTALLY_CLIENT_SECRET,
+        DENTALLY_PRACTICE_ID,
+        DENTALLY_API_VERSION
+    )
 
 class DentallyClient:
     """Production-grade client for the Dentally NexGen REST API (v2026-01-01).
@@ -197,3 +207,4 @@ class DentallyClient:
 
 # Global singleton client instance
 dentally_client = DentallyClient()
+

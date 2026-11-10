@@ -6,16 +6,28 @@ from typing import Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from dentally_config import (
-    DUBLIN_TZ,
-    DENTALLY_SERVER_PORT,
-    BEDROCK_MODEL_ID,
-    build_dentally_system_prompt,
-    DENTALLY_BEDROCK_TOOLS,
-    KNOWN_PATIENTS
-)
-from dentally_client import dentally_client
-import dentally_service
+try:
+    from .dentally_config import (
+        DUBLIN_TZ,
+        DENTALLY_SERVER_PORT,
+        BEDROCK_MODEL_ID,
+        build_dentally_system_prompt,
+        DENTALLY_BEDROCK_TOOLS,
+        KNOWN_PATIENTS
+    )
+    from .dentally_client import dentally_client
+    from . import dentally_service
+except ImportError:
+    from dentally_config import (
+        DUBLIN_TZ,
+        DENTALLY_SERVER_PORT,
+        BEDROCK_MODEL_ID,
+        build_dentally_system_prompt,
+        DENTALLY_BEDROCK_TOOLS,
+        KNOWN_PATIENTS
+    )
+    from dentally_client import dentally_client
+    import dentally_service
 
 app = FastAPI(
     title="Dentally NexGen API Read Test Server",
@@ -185,3 +197,4 @@ if __name__ == "__main__":
     import uvicorn
     print(f"Starting Dentally Read Test Server on port {DENTALLY_SERVER_PORT}...")
     uvicorn.run(app, host="0.0.0.0", port=DENTALLY_SERVER_PORT)
+
