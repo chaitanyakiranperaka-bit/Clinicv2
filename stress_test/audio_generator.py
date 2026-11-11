@@ -123,14 +123,14 @@ def get_turn_audio_bytes(text: str, turn_key: str) -> bytes:
         except Exception as e:
             print(f"[WARN] Failed to load WAV fixture {fixture_path.name}: {e}")
 
-    if speech is None:
-        # Try dynamic speech synthesis via generate_fixtures if available
-        try:
-            from generate_fixtures import synthesize_with_kokoro, synthesize_with_macos_say, synthesize_with_espeak
-            if synthesize_with_kokoro(text, fixture_path) or synthesize_with_macos_say(text, fixture_path) or synthesize_with_espeak(text, fixture_path):
-                speech = load_wav_pcm_float32(fixture_path)
-        except Exception:
-            pass
+    # Instant fallback for dynamic alternative slots: check standard alternative confirm fixture
+    if speech is None and turn_key.startswith("alt_slot_"):
+        fallback_wav = FIXTURES_DIR / "alternative_slot_confirm.wav"
+        if fallback_wav.exists():
+            try:
+                speech = load_wav_pcm_float32(fallback_wav)
+            except Exception:
+                pass
 
     if speech is None:
         words = text.split()

@@ -131,6 +131,47 @@ def generate_all_fixtures(force: bool = False):
         "Yes, that alternative time you mentioned works for me, please go ahead and book it."
     ))
 
+    # Pre-generate standard alternative slot selection fixtures for all clinic hours
+    standard_times = [
+        ("9 am", "alt_slot_9am"), ("9:00 am", "alt_slot_900am"),
+        ("9:15 am", "alt_slot_915am"),
+        ("9:30 am", "alt_slot_930am"),
+        ("9:45 am", "alt_slot_945am"),
+        ("10 am", "alt_slot_10am"), ("10:00 am", "alt_slot_1000am"),
+        ("10:15 am", "alt_slot_1015am"),
+        ("10:30 am", "alt_slot_1030am"),
+        ("10:45 am", "alt_slot_1045am"),
+        ("11 am", "alt_slot_11am"), ("11:00 am", "alt_slot_1100am"),
+        ("11:15 am", "alt_slot_1115am"),
+        ("11:30 am", "alt_slot_1130am"),
+        ("11:45 am", "alt_slot_1145am"),
+        ("12 pm", "alt_slot_12pm"), ("12:00 pm", "alt_slot_1200pm"),
+        ("12:15 pm", "alt_slot_1215pm"),
+        ("12:30 pm", "alt_slot_1230pm"),
+        ("12:45 pm", "alt_slot_1245pm"),
+        ("1 pm", "alt_slot_1pm"), ("1:00 pm", "alt_slot_100pm"),
+        ("1:15 pm", "alt_slot_115pm"),
+        ("1:30 pm", "alt_slot_130pm"),
+        ("1:45 pm", "alt_slot_145pm"),
+        ("2 pm", "alt_slot_2pm"), ("2:00 pm", "alt_slot_200pm"),
+        ("2:15 pm", "alt_slot_215pm"),
+        ("2:30 pm", "alt_slot_230pm"),
+        ("2:45 pm", "alt_slot_245pm"),
+        ("3 pm", "alt_slot_3pm"), ("3:00 pm", "alt_slot_300pm"),
+        ("3:15 pm", "alt_slot_315pm"),
+        ("3:30 pm", "alt_slot_330pm"),
+        ("3:45 pm", "alt_slot_345pm"),
+        ("4 pm", "alt_slot_4pm"), ("4:00 pm", "alt_slot_400pm"),
+        ("4:15 pm", "alt_slot_415pm"),
+        ("4:30 pm", "alt_slot_430pm"),
+        ("4:45 pm", "alt_slot_445pm"),
+    ]
+    for spoken_time, key in standard_times:
+        items_to_generate.append((
+            key,
+            f"The first slot, {spoken_time} works for me, please go ahead and book it."
+        ))
+
     # Deduplicate items by turn_key
     seen = set()
     unique_items = []
