@@ -2,6 +2,7 @@ import os
 import re
 import json
 import asyncio
+from typing import Optional
 from datetime import datetime, timedelta
 import boto3
 from botocore.config import Config
