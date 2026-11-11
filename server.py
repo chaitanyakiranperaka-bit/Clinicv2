@@ -6,6 +6,11 @@ from collections import deque
 import numpy as np
 import torch
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketDisconnect as StarletteWebSocketDisconnect
+try:
+    from starlette.websockets import WebSocketDisconnected
+except ImportError:
+    WebSocketDisconnected = StarletteWebSocketDisconnect
 from fastapi.responses import FileResponse
 from silero_vad import load_silero_vad
 
@@ -380,7 +385,7 @@ async def call_websocket(websocket: WebSocket):
                                 speech_buffer = []
                                 current_turn_task = asyncio.create_task(process_user_turn(full_turn))
 
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, WebSocketDisconnected):
         print("[WS DISCONNECTED] Caller hung up.", flush=True)
     finally:
         if current_turn_task and not current_turn_task.done():
