@@ -202,9 +202,18 @@ async def call_websocket(websocket: WebSocket):
 
     async def handle_tool_start(tool_name: str):
         await send_json({"type": "tool_start", "tool": tool_name})
-        # Only play filler audio during tool calls (not on every simple conversational turn)
-        if tool_name in ("check_calendar_slots", "book_calendar_slot") and tts.FILLER_AUDIO_B64:
-            await send_json({"type": "audio", "b64": tts.FILLER_AUDIO_B64})
+        # Play pre-rendered natural conversational filler audio immediately to eliminate dead air during GCal/Bedrock latency
+        filler_b64 = None
+        filler_text = ""
+        if tool_name == "check_calendar_slots":
+            filler_b64, filler_text = tts.get_check_filler()
+        elif tool_name == "book_calendar_slot":
+            filler_b64, filler_text = tts.get_book_filler()
+
+        if filler_b64:
+            if filler_text:
+                await send_json({"type": "transcript", "role": "Deirdre", "text": filler_text})
+            await send_json({"type": "audio", "b64": filler_b64})
 
     async def process_user_turn(audio_np: np.ndarray):
         nonlocal is_processing_turn, current_turn_task, unspoken_sentences, current_speaking_sentence

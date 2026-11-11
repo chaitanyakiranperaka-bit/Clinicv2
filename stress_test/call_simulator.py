@@ -63,8 +63,10 @@ class SimulatedCall:
                         await self._execute_turn(ws, turn_data)
 
                     # 3. Dynamic Alternative Slot Booking:
-                    # If after the initial turns the booking is not yet created, but Deirdre offered alternative slots:
-                    if not self.metric.booking_created and self.metric.turns:
+                    # If after the initial turns the booking is not yet created, negotiate alternative slots (up to 2 retries under contention)
+                    for _ in range(2):
+                        if self.metric.booking_created or not self.metric.turns:
+                            break
                         last_bot_reply = self.metric.turns[-1].bot_reply_text.lower()
                         if any(k in last_bot_reply for k in ["booked", "available", "open", "prefer", "suit", "another time", "alternatively"]):
                             alt_turn = {

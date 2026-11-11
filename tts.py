@@ -74,4 +74,38 @@ def synthesize_wav_base64(text: str) -> str:
         print(f"[TTS Error]: {e}", flush=True)
         return ""
 
-FILLER_AUDIO_B64 = synthesize_wav_base64("One moment please while I access the clinic schedule.")
+# Polite conversational filler sentences pre-synthesized at startup for zero-latency playback
+CHECK_FILLERS = []
+BOOK_FILLERS = []
+_filler_idx = 0
+
+try:
+    CHECK_FILLERS = [
+        (synthesize_wav_base64("Let me check that for you now, just one moment please."), "Let me check that for you now, just one moment please."),
+        (synthesize_wav_base64("Just one moment please, let me check the schedule for you."), "Just one moment please, let me check the schedule for you.")
+    ]
+    BOOK_FILLERS = [
+        (synthesize_wav_base64("Just one moment please while I confirm that booking for you."), "Just one moment please while I confirm that booking for you.")
+    ]
+except Exception as e:
+    print(f"[WARN] Failed to pre-synthesize filler audio: {e}", flush=True)
+
+def get_check_filler():
+    global _filler_idx
+    valid = [item for item in CHECK_FILLERS if item[0]]
+    if not valid:
+        return "", ""
+    item = valid[_filler_idx % len(valid)]
+    _filler_idx += 1
+    return item
+
+def get_book_filler():
+    global _filler_idx
+    valid = [item for item in BOOK_FILLERS if item[0]]
+    if not valid:
+        return "", ""
+    item = valid[_filler_idx % len(valid)]
+    _filler_idx += 1
+    return item
+
+FILLER_AUDIO_B64 = CHECK_FILLERS[0][0] if (CHECK_FILLERS and CHECK_FILLERS[0][0]) else ""

@@ -38,9 +38,33 @@ SIMULATED_CALLERS = [
     {"phone": "+353894455667", "name": "Sinead Burke", "dob": "15/01/1987", "clinician": "Nurse Kelly", "category": "Nurse Appointment"},
     {"phone": "+353875566778", "name": "Brendan Clarke", "dob": "19/09/1983", "clinician": "Dr. Yousuf", "category": "Routine GP"},
     {"phone": "+353866677889", "name": "Maeve Kavanagh", "dob": "02/06/1994", "clinician": "Dr. Yousuf", "category": "Routine GP"},
+    {"phone": "+353871000001", "name": "Cillian Murphy", "dob": "25/05/1976", "clinician": "Dr. Yousuf", "category": "Routine GP"},
+    {"phone": "+353871000002", "name": "Saoirse Ronan", "dob": "12/04/1994", "clinician": "Nurse Kelly", "category": "Nurse Appointment"},
+    {"phone": "+353871000003", "name": "Paul Mescal", "dob": "02/02/1996", "clinician": "Dr. Yousuf", "category": "Routine GP"},
+    {"phone": "+353871000004", "name": "Barry Keoghan", "dob": "18/10/1992", "clinician": "Nurse Kelly", "category": "Nurse Appointment"},
+    {"phone": "+353871000005", "name": "Colin Farrell", "dob": "31/05/1976", "clinician": "Dr. Yousuf", "category": "Routine GP"},
+    {"phone": "+353871000006", "name": "Domhnall Gleeson", "dob": "12/05/1983", "clinician": "Nurse Kelly", "category": "Nurse Appointment"},
+    {"phone": "+353871000007", "name": "Andrew Scott", "dob": "21/10/1976", "clinician": "Dr. Yousuf", "category": "Routine GP"},
+    {"phone": "+353871000008", "name": "Ruth Negga", "dob": "07/01/1982", "clinician": "Nurse Kelly", "category": "Nurse Appointment"},
+    {"phone": "+353871000009", "name": "Kerry Condon", "dob": "09/01/1983", "clinician": "Dr. Yousuf", "category": "Routine GP"},
+    {"phone": "+353871000010", "name": "Aisling Bea", "dob": "16/03/1984", "clinician": "Nurse Kelly", "category": "Nurse Appointment"},
+    {"phone": "+353871000011", "name": "Graham Norton", "dob": "04/04/1963", "clinician": "Dr. Yousuf", "category": "Routine GP"},
+    {"phone": "+353871000012", "name": "Dara O Briain", "dob": "04/02/1972", "clinician": "Dr. Yousuf", "category": "Routine GP"},
+    {"phone": "+353871000013", "name": "Brian O'Driscoll", "dob": "21/01/1979", "clinician": "Nurse Kelly", "category": "Nurse Appointment"},
+    {"phone": "+353871000014", "name": "Katie Taylor", "dob": "02/07/1986", "clinician": "Nurse Kelly", "category": "Nurse Appointment"},
+    {"phone": "+353871000015", "name": "Johnny Sexton", "dob": "11/07/1985", "clinician": "Dr. Yousuf", "category": "Routine GP"},
+    {"phone": "+353871000016", "name": "Roy Keane", "dob": "10/08/1971", "clinician": "Dr. Yousuf", "category": "Routine GP"},
+    {"phone": "+353871000017", "name": "Robbie Keane", "dob": "08/07/1980", "clinician": "Dr. Yousuf", "category": "Routine GP"},
+    {"phone": "+353871000018", "name": "Shane Lowry", "dob": "02/04/1987", "clinician": "Nurse Kelly", "category": "Nurse Appointment"},
+    {"phone": "+353871000019", "name": "Rory McIlroy", "dob": "04/05/1989", "clinician": "Dr. Yousuf", "category": "Routine GP"},
+    {"phone": "+353871000020", "name": "Padraig Harrington", "dob": "31/08/1971", "clinician": "Nurse Kelly", "category": "Nurse Appointment"},
+    {"phone": "+353871000021", "name": "Niamh Kavanagh", "dob": "13/02/1968", "clinician": "Nurse Kelly", "category": "Nurse Appointment"},
+    {"phone": "+353871000022", "name": "Sinead O'Connor", "dob": "08/12/1966", "clinician": "Dr. Yousuf", "category": "Routine GP"},
+    {"phone": "+353871000023", "name": "Enya Brennan", "dob": "17/05/1961", "clinician": "Dr. Yousuf", "category": "Routine GP"},
+    {"phone": "+353871000024", "name": "Hozier Byrne", "dob": "17/03/1990", "clinician": "Dr. Yousuf", "category": "Routine GP"},
 ]
 
-# 16 Distinct Conversational Test Scripts Across Doctors, Nurses, Days, and Slots
+# 40 Distinct Conversational Test Scripts Across Doctors, Nurses, Days, and Slots
 TEST_SCRIPTS = [
     {
         "id": "script_01",
@@ -167,6 +191,198 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s16_t1", "text": "Hello Deirdre, I would like to see Dr. Yousuf on Monday at 11 am."},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_17",
+        "clinician": "Dr. Yousuf",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s17_t1", "text": "Hi, can I book an appointment with Dr. Yousuf on Monday at 9:15 am?"},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_18",
+        "clinician": "Nurse Kelly",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s18_t1", "text": "Hello Deirdre, I need to see Nurse Kelly on Monday morning at 10:30 am."},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_19",
+        "clinician": "Dr. Yousuf",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s19_t1", "text": "Hi Deirdre, could I see Dr. Yousuf on Monday at 11:45 am?"},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_20",
+        "clinician": "Nurse Kelly",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s20_t1", "text": "Hello, can I book Nurse Kelly on Monday afternoon at 2:15 pm?"},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_21",
+        "clinician": "Dr. Yousuf",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s21_t1", "text": "Hi, I need an appointment with Dr. Yousuf on Monday at 3:15 pm."},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_22",
+        "clinician": "Nurse Kelly",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s22_t1", "text": "Hello, is Nurse Kelly open on Monday afternoon at 4:15 pm?"},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_23",
+        "clinician": "Dr. Yousuf",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s23_t1", "text": "Hi Deirdre, can I book Dr. Yousuf on Tuesday morning at 9:15 am?"},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_24",
+        "clinician": "Nurse Kelly",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s24_t1", "text": "Hello, I would like to see Nurse Kelly on Tuesday at 10:45 am."},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_25",
+        "clinician": "Dr. Yousuf",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s25_t1", "text": "Hi, can I see Dr. Yousuf on Tuesday morning at 11:45 am?"},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_26",
+        "clinician": "Nurse Kelly",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s26_t1", "text": "Hello Deirdre, is Nurse Kelly free on Tuesday afternoon at 3:15 pm?"},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_27",
+        "clinician": "Dr. Yousuf",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s27_t1", "text": "Hi, I need an appointment with Dr. Yousuf on Tuesday at 3:45 pm."},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_28",
+        "clinician": "Dr. Yousuf",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s28_t1", "text": "Hello, could I see Dr. Yousuf on Tuesday afternoon at 4:30 pm?"},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_29",
+        "clinician": "Nurse Kelly",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s29_t1", "text": "Hi Deirdre, I would like to book Nurse Kelly on Wednesday morning at 9:15 am."},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_30",
+        "clinician": "Nurse Kelly",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s30_t1", "text": "Hello, can I see Nurse Kelly on Wednesday morning at 11:15 am?"},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_31",
+        "clinician": "Dr. Yousuf",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s31_t1", "text": "Hi, can I book Dr. Yousuf on Wednesday afternoon at 2:15 pm?"},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_32",
+        "clinician": "Dr. Yousuf",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s32_t1", "text": "Hello Deirdre, I need to see Dr. Yousuf on Wednesday at 3:30 pm."},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_33",
+        "clinician": "Dr. Yousuf",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s33_t1", "text": "Hi, could I book Dr. Yousuf on Wednesday afternoon at 4:15 pm?"},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_34",
+        "clinician": "Nurse Kelly",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s34_t1", "text": "Hello, I would like to see Nurse Kelly on Thursday morning at 9:15 am."},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_35",
+        "clinician": "Dr. Yousuf",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s35_t1", "text": "Hi Deirdre, can I book Dr. Yousuf on Thursday morning at 11:15 am?"},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_36",
+        "clinician": "Nurse Kelly",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s36_t1", "text": "Hello, is Nurse Kelly available on Thursday afternoon at 2:30 pm?"},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_37",
+        "clinician": "Nurse Kelly",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s37_t1", "text": "Hi, could I book Nurse Kelly on Thursday afternoon at 4:30 pm?"},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_38",
+        "clinician": "Dr. Yousuf",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s38_t1", "text": "Hello Deirdre, can I see Dr. Yousuf on Friday morning at 9:15 am?"},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_39",
+        "clinician": "Dr. Yousuf",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s39_t1", "text": "Hi, I need an appointment with Dr. Yousuf on Friday at 10:15 am."},
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+        ]
+    },
+    {
+        "id": "script_40",
+        "clinician": "Dr. Yousuf",
+        "turns": [
+            {"turn_index": 1, "turn_key": "s40_t1", "text": "Hello, can I book Dr. Yousuf on Friday afternoon at 4:15 pm?"},
             {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
         ]
     }
