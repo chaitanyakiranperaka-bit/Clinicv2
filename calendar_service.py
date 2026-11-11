@@ -1,5 +1,6 @@
 import os
 import re
+import threading
 from datetime import datetime, timedelta
 from config import DUBLIN_TZ, GOOGLE_CALENDAR_ID, SERVICE_ACCOUNT_FILE, CLINICIANS, ALL_DAILY_SLOTS
 
@@ -11,24 +12,43 @@ except ImportError:
     GOOGLE_LIBS_AVAILABLE = False
 
 LOCAL_BOOKINGS = []
-_cached_service = None
+_local_bookings_lock = threading.Lock()
+_cached_creds = None
+_creds_lock = threading.Lock()
+_thread_local = threading.local()
+
+def get_creds():
+    """Thread-safe cached credentials loader."""
+    global _cached_creds
+    if _cached_creds is None:
+        with _creds_lock:
+            if _cached_creds is None and os.path.exists(SERVICE_ACCOUNT_FILE):
+                _cached_creds = service_account.Credentials.from_service_account_file(
+                    SERVICE_ACCOUNT_FILE, scopes=["https://www.googleapis.com/auth/calendar"]
+                )
+    return _cached_creds
 
 def get_gcal_service():
-    """Returns a cached Google Calendar service client or initializes a new one."""
-    global _cached_service
-    if _cached_service is not None:
-        return _cached_service
+    """Returns a thread-isolated Google Calendar client.
+    googleapiclient (httplib2) is NOT thread-safe for shared sockets.
+    Using threading.local ensures each OS thread has its own isolated connection pool.
+    """
+    if not (GOOGLE_LIBS_AVAILABLE and os.path.exists(SERVICE_ACCOUNT_FILE) and GOOGLE_CALENDAR_ID):
+        return None
 
-    if GOOGLE_LIBS_AVAILABLE and os.path.exists(SERVICE_ACCOUNT_FILE) and GOOGLE_CALENDAR_ID:
-        try:
-            creds = service_account.Credentials.from_service_account_file(
-                SERVICE_ACCOUNT_FILE, scopes=["https://www.googleapis.com/auth/calendar"]
-            )
-            _cached_service = build("calendar", "v3", credentials=creds, cache_discovery=False)
-            return _cached_service
-        except Exception as e:
-            print(f"[GCal Init Error]: {e}", flush=True)
-    return None
+    if hasattr(_thread_local, "service") and _thread_local.service is not None:
+        return _thread_local.service
+
+    try:
+        creds = get_creds()
+        if creds is None:
+            return None
+        service = build("calendar", "v3", credentials=creds, cache_discovery=False)
+        _thread_local.service = service
+        return service
+    except Exception as e:
+        print(f"[GCal Init Error]: {e}", flush=True)
+        return None
 
 def list_booked_slots_for_date(clinician: str, date_str: str) -> list:
     booked = set()
@@ -56,11 +76,13 @@ def list_booked_slots_for_date(clinician: str, date_str: str) -> list:
                         dt = datetime.fromisoformat(start_iso).astimezone(DUBLIN_TZ)
                         booked.add(dt.strftime("%H:%M"))
         except Exception as e:
+            _thread_local.service = None
             print(f"[GCal Query Error]: {e}", flush=True)
 
-    for b in LOCAL_BOOKINGS:
-        if b["clinician"] == clinician and b["date"] == date_str:
-            booked.add(b["slot_time"])
+    with _local_bookings_lock:
+        for b in LOCAL_BOOKINGS:
+            if b["clinician"] == clinician and b["date"] == date_str:
+                booked.add(b["slot_time"])
 
     return sorted(list(booked))
 
@@ -357,6 +379,7 @@ def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_na
             sync_status = created.get("htmlLink", "Live Google Calendar")
             print(f"[GCAL EVENT CREATED]: {sync_status}", flush=True)
         except Exception as e:
+            _thread_local.service = None
             sync_status = f"Local Queue (GCal error: {str(e)[:30]})"
 
     formatted_date = format_human_date(date_str)
@@ -373,7 +396,8 @@ def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_na
         "category": appointment_category,
         "sync_status": sync_status
     }
-    LOCAL_BOOKINGS.append(record)
+    with _local_bookings_lock:
+        LOCAL_BOOKINGS.append(record)
     return {
         "success": True,
         "booking": record,
