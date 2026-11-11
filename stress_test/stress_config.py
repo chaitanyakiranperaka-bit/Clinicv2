@@ -111,7 +111,7 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s06_t1", "text": "Hello, I'd like an appointment with Dr. Yousuf on Thursday morning at 10:30 am."},
-            {"turn_index": 2, "turn_key": "first_slot_confirm", "text": "Book first slot, that works for me."}
+            {"turn_index": 2, "turn_key": "any_slot_confirm", "text": "Book any available slot, that works for me."}
         ]
     },
     {

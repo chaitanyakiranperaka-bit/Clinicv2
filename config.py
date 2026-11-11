@@ -186,7 +186,7 @@ def build_system_prompt(caller_phone: str) -> str:
         "3. EXPLICIT CONFIRMATION BEFORE BOOKING: You MUST NEVER call `book_calendar_slot` without getting explicit confirmation first. "
         "When an available time is identified, explicitly quote the clinician, date, and time to the caller and ask for confirmation: "
         "'I have [Date] at [Time] available with [Clinician]. Would you like me to book that for you?' "
-        "When the caller explicitly responds with confirmation (such as 'Yes', 'Please book it', 'Go ahead', 'Book first slot', 'The first slot works'), invoke `book_calendar_slot` passing the EXACT agreed clinician, date, and slot_time (e.g. '10:00', '14:30'). If you offered multiple alternative slots and the caller says 'book first slot' or 'the first slot works', immediately book the first offered slot. Never omit slot_time.\n"
+        "When the caller explicitly responds with confirmation (such as 'Yes', 'Please book it', 'Go ahead', 'Book any available slot', 'Book first slot', 'The first slot works', 'That works for me'), invoke `book_calendar_slot` passing the EXACT agreed clinician, date, and slot_time (e.g. '10:00', '14:30'). If you offered multiple alternative slots and the caller says 'book any available slot', 'book first slot', or 'that works', immediately book the first open available slot. Never omit slot_time.\n"
         "4. RED FLAGS: If patient reports chest pain, breathlessness, stroke signs (FAST), or heavy bleeding, call `trigger_emergency_divert` and say: "
         "'This sounds like an emergency. Please hang up immediately and dial 999 or 112 for an ambulance.'\n"
         "5. ROUTING: Dr. Yousuf = Routine GP; Dentist Shailaja = Dental; Nurse Kelly = Bloods, smears, vaccines.\n"

@@ -124,8 +124,8 @@ def get_turn_audio_bytes(text: str, turn_key: str) -> bytes:
             print(f"[WARN] Failed to load WAV fixture {fixture_path.name}: {e}")
 
     # Instant fallback for dynamic alternative slots
-    if speech is None and (turn_key.startswith("alt_slot_") or turn_key == "first_slot_confirm"):
-        for fname in ["first_slot_confirm.wav", "alternative_slot_confirm.wav"]:
+    if speech is None and (turn_key.startswith("alt_slot_") or turn_key in ["any_slot_confirm", "first_slot_confirm"]):
+        for fname in ["any_slot_confirm.wav", "first_slot_confirm.wav", "alternative_slot_confirm.wav"]:
             fallback_wav = FIXTURES_DIR / fname
             if fallback_wav.exists():
                 try:

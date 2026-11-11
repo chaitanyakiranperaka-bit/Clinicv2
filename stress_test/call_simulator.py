@@ -71,8 +71,8 @@ class SimulatedCall:
                         if any(k in last_bot_reply for k in ["booked", "available", "open", "prefer", "suit", "another time", "alternatively"]):
                             alt_turn = {
                                 "turn_index": len(self.metric.turns) + 1,
-                                "turn_key": "first_slot_confirm",
-                                "text": "Book first slot, that works for me.",
+                                "turn_key": "any_slot_confirm",
+                                "text": "Book any available slot, that works for me.",
                                 "expected_tool": "book_calendar_slot"
                             }
                             await self._execute_turn(ws, alt_turn)

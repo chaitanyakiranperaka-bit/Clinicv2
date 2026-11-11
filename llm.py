@@ -107,46 +107,55 @@ def resolve_agreed_date(tool_input: dict, messages: list) -> str:
                     return parsed
     return today_iso
 
-def resolve_agreed_slot_time(tool_input: dict, messages: list, target_date: str = "") -> str:
-    """Extracts slot_time from tool_input, confirmed tool results, or conversation history, preventing past slots."""
+def resolve_agreed_slot_time(tool_input: dict, messages: list, target_date: str = "", clinician: str = "") -> str:
+    """Extracts slot_time from tool_input, confirmed tool results, or conversation history, preventing past slots and collisions."""
     now_dublin = datetime.now(DUBLIN_TZ)
     today_iso = now_dublin.strftime("%Y-%m-%d")
     is_today = (target_date == today_iso)
     cutoff_str = now_dublin.strftime("%H:%M")
 
-    # 1. If explicit slot_time provided in tool_input
-    raw_slot = tool_input.get("slot_time")
-    if raw_slot:
-        parsed = calendar_service.parse_time_preference(raw_slot)
-        if parsed:
-            if not is_today or parsed >= cutoff_str:
-                return parsed
+    booked = set(calendar_service.list_booked_slots_for_date(clinician, target_date)) if clinician and target_date else set()
 
-    # 2. Check the most recent check_calendar_slots tool result
+    # Check if caller asked for "any available slot" / "any slot" / "first slot"
+    wants_any_slot = False
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            for block in m.get("content", []):
+                t = block.get("text", "").lower() if isinstance(block, dict) else str(block).lower()
+                if any(k in t for k in ["any available", "any slot", "first slot"]):
+                    wants_any_slot = True
+                    break
+            break
+
+    # 1. If explicit slot_time provided in tool_input and NOT already booked (unless wants_any_slot)
+    raw_slot = tool_input.get("slot_time")
+    if raw_slot and not wants_any_slot:
+        parsed = calendar_service.parse_time_preference(raw_slot)
+        if parsed and (not is_today or parsed >= cutoff_str) and (parsed not in booked):
+            return parsed
+
+    # 2. Check the most recent check_calendar_slots tool result for first open, unbooked slot
     last_check = find_last_calendar_check(messages)
     if last_check:
         suggested = last_check.get("suggested_slots_to_quote", [])
         for s in suggested:
-            if not is_today or s >= cutoff_str:
+            if (not is_today or s >= cutoff_str) and (s not in booked):
                 return s
         all_open = last_check.get("all_open_slots", [])
         for s in all_open:
-            if not is_today or s >= cutoff_str:
+            if (not is_today or s >= cutoff_str) and (s not in booked):
                 return s
 
-    # 3. Search backwards in conversation history for the quoted time
-    for m in reversed(messages):
-        content = m.get("content", [])
-        for block in content:
-            txt = ""
-            if isinstance(block, dict) and "text" in block:
-                txt = block["text"]
-            elif isinstance(block, str):
-                txt = block
-            if txt:
-                parsed = calendar_service.parse_time_preference(txt)
-                if parsed and (not is_today or parsed >= cutoff_str):
-                    return parsed
+    # 3. If raw_slot was provided and unbooked
+    if raw_slot:
+        parsed = calendar_service.parse_time_preference(raw_slot)
+        if parsed and (not is_today or parsed >= cutoff_str) and (parsed not in booked):
+            return parsed
+
+    # 4. Fallback to any unbooked clinic slot
+    for s in calendar_service.ALL_DAILY_SLOTS:
+        if (not is_today or s >= cutoff_str) and (s not in booked):
+            return s
 
     return "10:00"
 
@@ -267,8 +276,9 @@ async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on
                 raw_pref or "any"
             )
         elif t_name == "book_calendar_slot":
+            clinician = t_in.get("clinician", "Dr. Yousuf")
             target_date = resolve_agreed_date(t_in, messages)
-            slot_time = resolve_agreed_slot_time(t_in, messages, target_date)
+            slot_time = resolve_agreed_slot_time(t_in, messages, target_date, clinician)
             patient_name = t_in.get("patient_name") or (matched["name"] if matched else "Caller")
             patient_dob = t_in.get("patient_dob") or (matched["dob"] if matched else "Unknown")
             cat = t_in.get("appointment_category") or "Routine GP"
