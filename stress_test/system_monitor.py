@@ -106,10 +106,12 @@ class SystemMonitor:
 
     def print_summary(self):
         s = self.get_summary()
+        vcpus = psutil.cpu_count(logical=True) if psutil else 4
+        ram_gb = round(psutil.virtual_memory().total / (1024**3)) if psutil else 16
         print("-" * 78)
-        print(" HARDWARE UTILIZATION PROFILE (AWS g5.2xlarge):")
-        print(f"   • CPU Usage:     Avg {s['cpu']['avg']}%  |  Peak {s['cpu']['max']}% (8 vCPUs)")
-        print(f"   • System RAM:    Avg {s['ram']['avg']}%  |  Peak {s['ram']['max']}% (32 GB)")
+        print(" HARDWARE UTILIZATION PROFILE (AWS EC2):")
+        print(f"   • CPU Usage:     Avg {s['cpu']['avg']}%  |  Peak {s['cpu']['max']}% ({vcpus} vCPUs)")
+        print(f"   • System RAM:    Avg {s['ram']['avg']}%  |  Peak {s['ram']['max']}% ({ram_gb} GB)")
         if s["has_gpu"]:
             print(f"   • NVIDIA A10G:   Avg {s['gpu_util_pct']['avg']}%  |  Peak {s['gpu_util_pct']['max']}%")
             print(f"   • VRAM Used:     Avg {s['gpu_mem_mib']['avg']} MiB  |  Peak {s['gpu_mem_mib']['max']} MiB / 24,576 MiB")

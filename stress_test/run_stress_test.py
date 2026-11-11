@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """CLI Entry Point for Star Clinic Autonomous Voice Receptionist Stress & Load Testing.
-Tests concurrency, VAD, Faster-Whisper STT, Bedrock Qwen, Google Calendar, and Kokoro TTS on AWS g5.2xlarge.
+Tests concurrency, VAD, Faster-Whisper STT, Bedrock Qwen, Google Calendar, and Kokoro TTS on AWS EC2 (g5.xlarge / g5.2xlarge).
 """
 
 import sys

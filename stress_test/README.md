@@ -1,20 +1,22 @@
 # Voice Receptionist Concurrency & Stress Testing Suite
 
-Dedicated load and stress testing framework designed for the **Star Dental & GP Clinic Autonomous Voice Receptionist** deployed on an **AWS EC2 `g5.2xlarge`** instance.
+Dedicated load and stress testing framework designed for the **Star Dental & GP Clinic Autonomous Voice Receptionist** deployed on an **AWS EC2 `g5.xlarge`** (or `g5.2xlarge`) instance.
 
 All appointments and slot verifications in this suite operate on **Google Calendar** (Routine GP with `Dr. Yousuf` and Nurse Appointments with `Nurse Kelly`).
 
 ---
 
-## 1. AWS EC2 `g5.2xlarge` Architecture & Capacity
+## 1. AWS EC2 `g5.xlarge` Architecture & Capacity
 
 | Resource | Specification | Allocation & Expected Load |
 | :--- | :--- | :--- |
-| **GPU** | 1x NVIDIA A10G (24 GB VRAM) | **Faster-Whisper** (`small.en`, ~1.5 GB) + **Kokoro-82M** (~500 MB). Combined base VRAM is ~2.5 GB, leaving $> 21\text{ GB}$ headroom. |
-| **vCPUs** | 8 vCPUs (AMD EPYC) | Dedicated **Silero VAD** instances per active audio stream (512 samples / 32ms frames). |
-| **RAM** | 32 GB System Memory | OS, Python runtime buffers, and audio fifos. |
+| **GPU** | 1x NVIDIA A10G (24 GB VRAM) | **Faster-Whisper** (`small.en`, ~1.5 GB) + **Kokoro-82M** (~500 MB). Combined base VRAM is ~2.0 GB, leaving $> 22\text{ GB}$ headroom. |
+| **vCPUs** | 4 vCPUs (AMD EPYC 7R32) | Dedicated **Silero VAD** instances per active audio stream (512 samples / 32ms frames). Handles 10+ concurrent streams at $< 20\%$ avg CPU. |
+| **RAM** | 16 GB System Memory | OS, Python runtime buffers, and audio FIFOs (~3.2 GB / 20% active during 10 concurrent calls). |
 | **LLM Inference** | AWS Bedrock (`eu-west-1`) | Cloud-hosted Qwen (`qwen.qwen3-coder-30b-a3b-v1:0`) executing function calling. |
 | **Calendar Backend** | Google Calendar API | Service account syncing events to `GOOGLE_CALENDAR_ID`. |
+
+*(Note: If scaling beyond 15–20 concurrent calls, stepping up to `g5.2xlarge` provides 8 vCPUs and 32 GB RAM for higher multi-stream VAD parallelism).*
 
 ---
 
@@ -106,7 +108,7 @@ The test suite captures and analyzes:
 * **Hardware Utilization Profile**:
   * **A10G GPU Compute Utilization %**
   * **VRAM Consumption** (Base ~2.5 GB; peak should remain under 6 GB during high concurrency)
-  * **8 vCPU Load %**
+  * **vCPU Load %** (4 vCPUs on `g5.xlarge`, 8 vCPUs on `g5.2xlarge`)
 
 All results are printed in a formatted report in the terminal and saved as a JSON report in `stress_test/results/`.
 
