@@ -193,6 +193,7 @@ async def call_websocket(websocket: WebSocket):
     asyncio.create_task(speak_text(greeting))
 
     async def handle_tool_start(tool_name: str):
+        await send_json({"type": "tool_start", "tool": tool_name})
         # Only play filler audio during tool calls (not on every simple conversational turn)
         if tool_name in ("check_calendar_slots", "book_calendar_slot") and tts.FILLER_AUDIO_B64:
             await send_json({"type": "audio", "b64": tts.FILLER_AUDIO_B64})

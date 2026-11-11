@@ -1,5 +1,6 @@
 import os
 import io
+import wave
 import math
 import random
 import struct
@@ -83,10 +84,49 @@ def generate_silence(duration_sec: float = 1.35) -> bytes:
         samples.append(random.gauss(0, 0.0008))
     return samples.tobytes()
 
+def load_wav_pcm_float32(file_path: Path) -> bytes:
+    """Reads a WAV file and converts it into raw 16kHz float32 PCM bytes.
+    Zero external dependencies (supports standard library wave/array and numpy).
+    """
+    with wave.open(str(file_path), "rb") as w:
+        nchannels = w.getnchannels()
+        sampwidth = w.getsampwidth()
+        framerate = w.getframerate()
+        nframes = w.getnframes()
+        raw_bytes = w.readframes(nframes)
+
+    # Convert 16-bit PCM to float32
+    if sampwidth == 2:
+        if HAS_NUMPY:
+            np_arr = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+            return np_arr.tobytes()
+        else:
+            int16_arr = array.array("h", raw_bytes)
+            float32_arr = array.array("f", (s / 32768.0 for s in int16_arr))
+            return float32_arr.tobytes()
+    elif sampwidth == 4:
+        return raw_bytes
+    else:
+        raise ValueError(f"Unsupported sample width: {sampwidth}")
+
 def get_turn_audio_bytes(text: str, turn_key: str) -> bytes:
-    """Returns 16kHz float32 PCM bytes for the full turn (speech + trailing silence)."""
-    words = text.split()
-    duration = max(1.8, len(words) * 0.32)
-    speech = generate_synthetic_speech(duration_sec=duration)
+    """Returns 16kHz float32 PCM bytes for the full turn (speech + trailing silence).
+    Prioritizes pre-generated spoken WAV fixture from audio_fixtures/ so Faster-Whisper
+    transcribes accurate human words; falls back gracefully to synthetic tone.
+    """
+    fixture_path = FIXTURES_DIR / f"{turn_key}.wav"
+    speech = None
+
+    if fixture_path.exists():
+        try:
+            speech = load_wav_pcm_float32(fixture_path)
+        except Exception as e:
+            print(f"[WARN] Failed to load WAV fixture {fixture_path.name}: {e}")
+
+    if speech is None:
+        words = text.split()
+        duration = max(1.8, len(words) * 0.32)
+        speech = generate_synthetic_speech(duration_sec=duration)
+
     silence = generate_silence(duration_sec=1.35)
     return speech + silence

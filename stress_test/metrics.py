@@ -158,3 +158,4 @@ class MetricsCollector:
             print(f"   • Mean: {tool['mean']}s  |  p50: {tool['p50']}s  |  p95: {tool['p95']}s  |  Max: {tool['max']}s")
 
         print("=" * 78 + "\n")
+

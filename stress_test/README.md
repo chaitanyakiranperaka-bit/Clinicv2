@@ -26,7 +26,9 @@ stress_test/
 ├── __init__.py             # Package exports
 ├── requirements.txt        # Lightweight dependencies for load runner
 ├── stress_config.py        # Concurrency parameters, timeouts, and caller profiles
-├── audio_generator.py      # Real-time 16kHz float32 audio payload generator (VAD + speech)
+├── audio_fixtures/         # Pre-rendered 16kHz PCM WAV speech files for each conversational turn
+├── generate_fixtures.py    # Generates human speech WAV fixtures via Kokoro or macOS say
+├── audio_generator.py      # Real-time 16kHz float32 audio payload streaming (speech + silence)
 ├── call_simulator.py       # Stateful caller simulation over WebSockets
 ├── load_runner.py          # Concurrency orchestrator (baseline, burst, ramp-up, soak)
 ├── metrics.py              # Latency percentile statistics (p50, p90, p95, p99, TTFA)
@@ -107,3 +109,4 @@ The test suite captures and analyzes:
   * **8 vCPU Load %**
 
 All results are printed in a formatted report in the terminal and saved as a JSON report in `stress_test/results/`.
+

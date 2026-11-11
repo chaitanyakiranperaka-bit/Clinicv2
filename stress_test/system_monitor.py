@@ -117,3 +117,4 @@ class SystemMonitor:
         else:
             print("   • NVIDIA GPU:    No nvidia-smi detected (Running on CPU/Local host)")
         print("-" * 78)
+

@@ -151,3 +151,4 @@ class LoadRunner:
 
         await self.monitor.stop()
         self.metrics.finish_test()
+
