@@ -26,12 +26,12 @@ class LoadRunner:
 
     def _get_next_caller(self) -> Dict[str, Any]:
         self._call_counter += 1
-        caller = SIMULATED_CALLERS[(self._call_counter - 1) % len(SIMULATED_CALLERS)]
-        phone = caller["phone"]
-        script = random.choice(TEST_SCRIPTS)
+        idx = (self._call_counter - 1) % len(SIMULATED_CALLERS)
+        caller = SIMULATED_CALLERS[idx]
+        script = TEST_SCRIPTS[idx % len(TEST_SCRIPTS)]
         return {
             "call_id": f"call-{self._call_counter:03d}",
-            "phone": phone,
+            "phone": caller["phone"],
             "script": script
         }
 

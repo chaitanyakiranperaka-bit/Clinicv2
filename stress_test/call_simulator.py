@@ -62,7 +62,20 @@ class SimulatedCall:
                     for turn_data in self.script.get("turns", []):
                         await self._execute_turn(ws, turn_data)
 
-                    # 3. Graceful Hangup
+                    # 3. Dynamic Alternative Slot Booking:
+                    # If after the initial turns the booking is not yet created, but Deirdre offered alternative slots:
+                    if not self.metric.booking_created and self.metric.turns:
+                        last_bot_reply = self.metric.turns[-1].bot_reply_text.lower()
+                        if any(k in last_bot_reply for k in ["booked", "available", "open", "prefer", "suit", "another time", "alternatively"]):
+                            alt_turn = {
+                                "turn_index": len(self.metric.turns) + 1,
+                                "turn_key": "alternative_slot_confirm",
+                                "text": "Yes, that alternative time you mentioned works for me, please go ahead and book it.",
+                                "expected_tool": "book_calendar_slot"
+                            }
+                            await self._execute_turn(ws, alt_turn)
+
+                    # 4. Graceful Hangup
                     await ws.send(json.dumps({"action": "hangup"}))
                     await asyncio.sleep(0.1)
 
@@ -110,7 +123,7 @@ class SimulatedCall:
         """Streams caller audio and tracks VAD, STT, LLM, GCal, and TTS responses."""
         turn_idx = turn_data["turn_index"]
         text = turn_data["text"]
-        turn_key = f"{self.script['id']}_t{turn_idx}"
+        turn_key = turn_data.get("turn_key") or f"{self.script['id']}_t{turn_idx}"
 
         turn_metric = TurnMetric(
             turn_index=turn_idx,

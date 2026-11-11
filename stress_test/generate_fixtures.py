@@ -116,47 +116,65 @@ def generate_all_fixtures(force: bool = False):
     generated = 0
     skipped = 0
 
+    items_to_generate = []
     for script in TEST_SCRIPTS:
         script_id = script["id"]
         for turn in script.get("turns", []):
             turn_idx = turn["turn_index"]
-            turn_key = f"{script_id}_t{turn_idx}"
+            turn_key = turn.get("turn_key") or f"{script_id}_t{turn_idx}"
             text = turn["text"]
-            dest_wav = FIXTURES_DIR / f"{turn_key}.wav"
+            items_to_generate.append((turn_key, text))
 
-            if dest_wav.exists() and not force:
-                print(f"  [EXISTS] {dest_wav.name:32} (Use --force to regenerate)")
-                skipped += 1
-                continue
+    # Add dynamic alternative slot confirm fixture
+    items_to_generate.append((
+        "alternative_slot_confirm",
+        "Yes, that alternative time you mentioned works for me, please go ahead and book it."
+    ))
 
-            print(f"  [GENERATING] {dest_wav.name:28} -> \"{text[:45]}...\"")
-            
-            success = False
-            # 1. Try Kokoro
-            try:
-                import kokoro
-                success = synthesize_with_kokoro(text, dest_wav)
-                if success:
-                    print(f"    ✓ Generated via Kokoro-82M")
-            except ImportError:
-                pass
+    # Deduplicate items by turn_key
+    seen = set()
+    unique_items = []
+    for key, text in items_to_generate:
+        if key not in seen:
+            seen.add(key)
+            unique_items.append((key, text))
 
-            # 2. Try macOS say
-            if not success:
-                success = synthesize_with_macos_say(text, dest_wav)
-                if success:
-                    print(f"    ✓ Generated via macOS say/afconvert")
+    for turn_key, text in unique_items:
+        dest_wav = FIXTURES_DIR / f"{turn_key}.wav"
 
-            # 3. Try Linux espeak
-            if not success:
-                success = synthesize_with_espeak(text, dest_wav)
-                if success:
-                    print(f"    ✓ Generated via espeak")
+        if dest_wav.exists() and not force:
+            print(f"  [EXISTS] {dest_wav.name:32} (Use --force to regenerate)")
+            skipped += 1
+            continue
 
+        print(f"  [GENERATING] {dest_wav.name:28} -> \"{text[:45]}...\"")
+        
+        success = False
+        # 1. Try Kokoro
+        try:
+            import kokoro
+            success = synthesize_with_kokoro(text, dest_wav)
             if success:
-                generated += 1
-            else:
-                print(f"    ✗ Failed to synthesize {dest_wav.name}. No supported TTS engine found.")
+                print(f"    ✓ Generated via Kokoro-82M")
+        except ImportError:
+            pass
+
+        # 2. Try macOS say
+        if not success:
+            success = synthesize_with_macos_say(text, dest_wav)
+            if success:
+                print(f"    ✓ Generated via macOS say/afconvert")
+
+        # 3. Try Linux espeak
+        if not success:
+            success = synthesize_with_espeak(text, dest_wav)
+            if success:
+                print(f"    ✓ Generated via espeak")
+
+        if success:
+            generated += 1
+        else:
+            print(f"    ✗ Failed to synthesize {dest_wav.name}. No supported TTS engine found.")
 
     print("-" * 78)
     print(f"Summary: {generated} generated, {skipped} already present.")

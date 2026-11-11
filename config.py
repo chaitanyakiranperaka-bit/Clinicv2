@@ -20,6 +20,12 @@ KNOWN_PATIENTS = {
     "+353876667788": {"name": "Niamh O'Brien", "dob": "25/12/1986"},
     "+353857778899": {"name": "Eoin McCarthy", "dob": "17/06/1991"},
     "+353898889900": {"name": "Roisin Gallagher", "dob": "08/02/1989"},
+    "+353871122334": {"name": "Colm Hayes", "dob": "11/05/1981"},
+    "+353862233445": {"name": "Fiona Brennan", "dob": "28/07/1993"},
+    "+353853344556": {"name": "Declan Murray", "dob": "04/10/1979"},
+    "+353894455667": {"name": "Sinead Burke", "dob": "15/01/1987"},
+    "+353875566778": {"name": "Brendan Clarke", "dob": "19/09/1983"},
+    "+353866677889": {"name": "Maeve Kavanagh", "dob": "02/06/1994"},
 }
 
 CLINICIANS = {
