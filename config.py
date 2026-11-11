@@ -95,7 +95,10 @@ BEDROCK_TOOLS = {
 
 def generate_calendar_reference(days_ahead: int = 14) -> str:
     now_dublin = datetime.now(DUBLIN_TZ)
-    lines = [f"- Current Dublin Time: {now_dublin.strftime('%A, %d %B %Y %H:%M')}"]
+    lines = [
+        f"- Current Dublin Time: {now_dublin.strftime('%A, %d %B %Y %H:%M')}",
+        f"- TODAY IS {now_dublin.strftime('%A, %d %B %Y')}. Any time earlier than {now_dublin.strftime('%H:%M')} today has ALREADY PASSED and CANNOT be booked."
+    ]
     lines.append("- UPCOMING 14-DAY CALENDAR SCHEDULE (Use this EXACT mapping of Day-of-Week to Date):")
     for i in range(days_ahead):
         dt = now_dublin + timedelta(days=i)
@@ -154,7 +157,7 @@ def build_system_prompt(caller_phone: str) -> str:
         f"- Operating Hours: Monday to Saturday 09:00 to 17:00. The clinic is CLOSED on Sundays (direct urgent issues to D-Doc/K-Doc).\n"
         f"- Caller Context: {caller_ctx}\n\n"
         "CLINICAL & FUNCTION-CALLING RULES:\n"
-        "1. DATES & CALENDAR LOOKUP: When caller mentions any day (e.g. 'Monday', 'Tuesday', 'Friday', 'the 9th', '12th Nov'), consult the UPCOMING CALENDAR SCHEDULE above to find the exact YYYY-MM-DD date. NEVER guess or invent dates. Never book past dates. Always quote the full day and date from the tool instruction (e.g. 'Friday, 13th November').\n"
+        "1. DATES & CALENDAR LOOKUP: When caller mentions any day (e.g. 'Monday', 'Tuesday', 'Friday', 'the 9th', '12th Nov'), consult the UPCOMING CALENDAR SCHEDULE above to find the exact YYYY-MM-DD date. NEVER guess or invent dates. Never book past dates or past times earlier today. Always quote the full day and date from the tool instruction (e.g. 'Friday, 13th November').\n"
         "2. AVAILABILITY: Whenever the caller mentions or asks about ANY time (e.g. '1030', '10:30', 'afternoon', 'You have a 1030 slot'), you MUST call `check_calendar_slots` with `time_preference` set to that time. Always strictly follow the tool's `availability_verdict` and `instruction`. If the tool says a slot is AVAILABLE, it IS available — never tell the caller it is unavailable!\n"
         "3. EXPLICIT CONFIRMATION BEFORE BOOKING: You MUST NEVER call `book_calendar_slot` without getting explicit confirmation first. "
         "When an available time is identified, explicitly quote the clinician, date, and time to the caller and ask for confirmation: "
@@ -164,5 +167,6 @@ def build_system_prompt(caller_phone: str) -> str:
         "'This sounds like an emergency. Please hang up immediately and dial 999 or 112 for an ambulance.'\n"
         "5. ROUTING: Dr. Yousuf = Routine GP; Dentist Shailaja = Dental; Nurse Kelly = Bloods, smears, vaccines.\n"
         "6. TOOL EXECUTION: When you need to call a tool, invoke the tool directly. NEVER write or speak XML tags, parameters, code, or function names (such as <function=...>, <tool_call>, or JSON) in your spoken output. The caller must only hear your natural, spoken English words.\n"
-        "7. NATURAL SPOKEN TIMES: When speaking times aloud, always use natural 12-hour conversational format (e.g. say '9 am' instead of '09:00', '9:15 am' instead of '09:15', '1 pm' instead of '13:00', '1:15 pm' instead of '13:15'). Never speak 24-hour military times or leading zeros."
+        "7. NATURAL SPOKEN TIMES: When speaking times aloud, always use natural 12-hour conversational format (e.g. say '9 am' instead of '09:00', '9:15 am' instead of '09:15', '1 pm' instead of '13:00', '1:15 pm' instead of '13:15'). Never speak 24-hour military times or leading zeros.\n"
+        "8. PAST TIME PROHIBITION: NEVER offer, suggest, quote, or attempt to book any slot that has already passed earlier today (before current Dublin time) or any past date. If a caller asks for a time that has already passed today, or if all slots for today are full, politely inform them that this time has already passed, and offer future open times today or tomorrow/next week. NEVER hallucinate or invent past times."
     )

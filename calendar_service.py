@@ -237,8 +237,25 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
         return {"available": False, "message": f"Invalid date format: {date_str}. Please use YYYY-MM-DD."}
 
     formatted_date = format_human_date(date_str)
+    now_dublin = datetime.now(DUBLIN_TZ)
 
-    # 1. Clinic is closed on Sundays (weekday() == 6)
+    # 1. Reject past dates
+    if query_date.date() < now_dublin.date():
+        tomorrow_iso = (now_dublin + timedelta(days=1)).strftime("%Y-%m-%d")
+        tomorrow_fmt = format_human_date(tomorrow_iso)
+        return {
+            "status": "error",
+            "available": False,
+            "date": date_str,
+            "formatted_date": formatted_date,
+            "suggested_slots_to_quote": [],
+            "all_open_slots": [],
+            "availability_verdict": f"{formatted_date} has already passed.",
+            "instruction": f"Tell the caller: '{formatted_date} has already passed. The earliest available date is {tomorrow_fmt}. Would you like me to check times for {tomorrow_fmt}?'",
+            "message": f"{formatted_date} has already passed."
+        }
+
+    # 2. Clinic is closed on Sundays (weekday() == 6)
     if query_date.weekday() == 6:
         days_until_monday = (7 - query_date.weekday()) % 7 or 7
         next_monday_dt = query_date + timedelta(days=days_until_monday)
@@ -254,24 +271,50 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
 
     booked = list_booked_slots_for_date(clinician, date_str)
     
-    # 2. Filter out already booked slots
+    # 3. Filter out already booked slots
     free_slots = [s for s in ALL_DAILY_SLOTS if s not in booked]
 
-    # 3. If query date is today, filter out past slots (plus 15-minute buffer)
-    now_dublin = datetime.now(DUBLIN_TZ)
+    # 4. If query date is today, filter out past slots (plus 15-minute buffer)
     if date_str == now_dublin.strftime("%Y-%m-%d"):
         cutoff_dt = now_dublin + timedelta(minutes=15)
         cutoff_str = cutoff_dt.strftime("%H:%M")
         free_slots = [s for s in free_slots if s >= cutoff_str]
 
     if not free_slots:
-        tomorrow_iso = (now_dublin + timedelta(days=1)).strftime("%Y-%m-%d")
+        is_today = (date_str == now_dublin.strftime("%Y-%m-%d"))
+        tomorrow_dt = now_dublin + timedelta(days=1)
+        if tomorrow_dt.weekday() == 6:
+            tomorrow_dt += timedelta(days=1)
+        tomorrow_iso = tomorrow_dt.strftime("%Y-%m-%d")
         tomorrow_fmt = format_human_date(tomorrow_iso)
+        next_week_iso = (query_date + timedelta(days=7)).strftime("%Y-%m-%d")
+        next_week_fmt = format_human_date(next_week_iso)
+
+        if is_today:
+            msg = f"All appointment slots for today ({formatted_date}) have already passed or are fully booked."
+            instruction = (
+                f"Tell the caller: 'All appointments for today ({formatted_date}) have already passed. "
+                f"The earliest available day is {tomorrow_fmt}. Would you like me to check times for {tomorrow_fmt}?' "
+                f"CRITICAL: Do NOT quote or invent any times for {formatted_date}."
+            )
+        else:
+            msg = f"No remaining open slots for {clinician} on {formatted_date}."
+            instruction = (
+                f"Tell the caller: 'I am sorry, but {clinician} has no remaining appointments available on {formatted_date}. "
+                f"Would you like me to check {tomorrow_fmt} or next week on {next_week_fmt}?' "
+                f"CRITICAL: Do NOT quote or invent any times for {formatted_date}."
+            )
+
         return {
+            "status": "error",
             "available": False,
             "date": date_str,
             "formatted_date": formatted_date,
-            "message": f"No remaining open slots for {clinician} on {formatted_date}. Suggest tomorrow ({tomorrow_fmt}) or another date."
+            "suggested_slots_to_quote": [],
+            "all_open_slots": [],
+            "availability_verdict": msg,
+            "instruction": instruction,
+            "message": msg
         }
 
     morning = [s for s in free_slots if int(s.split(":")[0]) < 13]
@@ -300,11 +343,20 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
         else:
             suggested = sorted(closest)
             suggested_spoken = [format_spoken_time(s) for s in suggested]
-            status_msg = f"{target_spoken} is NOT available with {clinician} on {formatted_date}. Closest alternative times on {formatted_date} are: {', '.join(suggested_spoken)}."
-            instruction = (
-                f"Tell the caller: '{target_spoken} is not available with {clinician} on {formatted_date}, but I have {', '.join(suggested_spoken)} open. "
-                "Would one of those times suit you?'"
-            )
+            is_today = (date_str == now_dublin.strftime("%Y-%m-%d"))
+            target_in_past = (is_today and target_slot < now_dublin.strftime("%H:%M"))
+            if target_in_past:
+                status_msg = f"{target_spoken} has ALREADY PASSED today ({formatted_date}). Closest remaining open times today are: {', '.join(suggested_spoken)}."
+                instruction = (
+                    f"Tell the caller: '{target_spoken} has already passed today ({formatted_date}), but I have {', '.join(suggested_spoken)} open later today. "
+                    "Would one of those times suit you?'"
+                )
+            else:
+                status_msg = f"{target_spoken} is NOT available with {clinician} on {formatted_date}. Closest alternative times on {formatted_date} are: {', '.join(suggested_spoken)}."
+                instruction = (
+                    f"Tell the caller: '{target_spoken} is not available with {clinician} on {formatted_date}, but I have {', '.join(suggested_spoken)} open. "
+                    "Would one of those times suit you?'"
+                )
     elif "morning" in pref:
         suggested = morning[:3] if morning else afternoon[:3]
         suggested_spoken = [format_spoken_time(s) for s in suggested]
@@ -350,7 +402,13 @@ def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_na
     # Check if slot is in the past
     now_dublin = datetime.now(DUBLIN_TZ)
     if appt_dt < now_dublin:
-        return {"success": False, "error": f"{slot_time} on {date_str} has already passed."}
+        tomorrow_iso = (now_dublin + timedelta(days=1)).strftime("%Y-%m-%d")
+        tomorrow_fmt = format_human_date(tomorrow_iso)
+        return {
+            "success": False,
+            "error": f"{slot_time} on {date_str} has already passed.",
+            "instruction": f"Tell the caller: 'I apologize, but {format_spoken_time(slot_time)} on {format_human_date(date_str)} has already passed. Would you like me to book an appointment for tomorrow ({tomorrow_fmt}) instead?'"
+        }
 
     booked = list_booked_slots_for_date(clinician, date_str)
     if slot_time in booked:

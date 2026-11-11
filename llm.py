@@ -12,64 +12,86 @@ print(f"[INIT LLM] Connecting to Bedrock ({AWS_REGION} | {BEDROCK_MODEL_ID})..."
 boto_config = Config(connect_timeout=4, read_timeout=12, retries={"max_attempts": 1})
 bedrock_client = boto3.client("bedrock-runtime", region_name=AWS_REGION, config=boto_config)
 
+def find_last_calendar_check(messages: list) -> Optional[dict]:
+    """Retrieves the most recent check_calendar_slots result data from conversation history."""
+    for m in reversed(messages):
+        content = m.get("content", [])
+        for block in content:
+            if isinstance(block, dict):
+                # Native Bedrock toolResult format
+                if "toolResult" in block:
+                    for item in block["toolResult"].get("content", []):
+                        if isinstance(item, dict) and "json" in item:
+                            j = item["json"]
+                            if isinstance(j, dict) and ("suggested_slots_to_quote" in j or "all_open_slots" in j or "availability_verdict" in j):
+                                return j
+                # Text block with JSON
+                elif "text" in block:
+                    txt = block["text"]
+                    if "Calendar check result:" in txt:
+                        m_json = re.search(r"Calendar check result:\s*(\{.*?\})", txt)
+                        if m_json:
+                            try:
+                                return json.loads(m_json.group(1))
+                            except Exception:
+                                pass
+    return None
+
 def normalize_date(date_str: str, user_text: str = "") -> str:
-    """Safely normalizes input date string to YYYY-MM-DD in Dublin timezone, preventing past dates and hallucinated weekdays."""
+    """Safely normalizes input date string to YYYY-MM-DD in Dublin timezone, preventing past dates and past times."""
     now_dublin = datetime.now(DUBLIN_TZ)
     today_iso = now_dublin.strftime("%Y-%m-%d")
 
     # If the caller verbally requested a specific day/date, resolve it deterministically:
     detected_date = calendar_service.parse_date_preference(user_text, now_dublin) if user_text else None
-    if detected_date:
-        return detected_date
+    target = detected_date or date_str or today_iso
 
-    if not date_str or not isinstance(date_str, str):
-        return today_iso
     try:
-        dt = datetime.strptime(date_str.strip(), "%Y-%m-%d").replace(tzinfo=DUBLIN_TZ)
-        # Prevent past dates! If an LLM hallucinated a past date, fall back to today or next open clinic day
-        if dt.date() < now_dublin.date():
-            if now_dublin.weekday() == 6:
-                return (now_dublin + timedelta(days=1)).strftime("%Y-%m-%d")
-            return today_iso
+        dt = datetime.strptime(target.strip(), "%Y-%m-%d").replace(tzinfo=DUBLIN_TZ)
+        # Advance any past dates by 7 days to next week
+        while dt.date() < now_dublin.date():
+            dt += timedelta(days=7)
+
+        # If target date is today, check if caller requested a time that has already passed today
+        if dt.date() == now_dublin.date() and user_text:
+            pref_time = calendar_service.parse_time_preference(user_text)
+            is_explicit_today = bool(re.search(r"\btoday\b", user_text.lower()))
+            # If time has passed today and caller did not explicitly ask for "today" (e.g. asked for "Wednesday at 11 am"),
+            # advance to next week rather than querying past hours
+            if pref_time and pref_time < now_dublin.strftime("%H:%M") and not is_explicit_today:
+                dt += timedelta(days=7)
+
         return dt.strftime("%Y-%m-%d")
     except Exception:
         return today_iso
 
-def resolve_agreed_slot_time(tool_input: dict, messages: list) -> str:
-    """Extracts slot_time from tool_input or scans conversation history backwards for the agreed time."""
-    raw_slot = tool_input.get("slot_time")
-    if raw_slot:
-        parsed = calendar_service.parse_time_preference(raw_slot)
-        if parsed:
-            return parsed
-
-    # If missing from tool_input, search backwards in conversation history for the quoted time
-    for m in reversed(messages):
-        content = m.get("content", [])
-        for block in content:
-            txt = ""
-            if isinstance(block, dict) and "text" in block:
-                txt = block["text"]
-            elif isinstance(block, str):
-                txt = block
-            if txt:
-                parsed = calendar_service.parse_time_preference(txt)
-                if parsed:
-                    return parsed
-    return "09:00"
-
 def resolve_agreed_date(tool_input: dict, messages: list) -> str:
     """Extracts date from tool_input or scans conversation history backwards for the agreed date."""
     now_dublin = datetime.now(DUBLIN_TZ)
+    today_iso = now_dublin.strftime("%Y-%m-%d")
+
+    # 1. Check if a recent check_calendar_slots tool execution confirmed a date
+    last_check = find_last_calendar_check(messages)
+    if last_check and last_check.get("date"):
+        try:
+            check_dt = datetime.strptime(last_check["date"].strip(), "%Y-%m-%d").replace(tzinfo=DUBLIN_TZ)
+            if check_dt.date() >= now_dublin.date():
+                return last_check["date"]
+        except Exception:
+            pass
+
+    # 2. Check tool_input['date']
     raw_date = tool_input.get("date")
     if raw_date:
         try:
             dt = datetime.strptime(raw_date.strip(), "%Y-%m-%d").replace(tzinfo=DUBLIN_TZ)
-            if dt.date() >= now_dublin.date():
-                return dt.strftime("%Y-%m-%d")
+            while dt.date() < now_dublin.date():
+                dt += timedelta(days=7)
+            return dt.strftime("%Y-%m-%d")
         except Exception:
             pass
 
+    # 3. Search backwards in messages
     for m in reversed(messages):
         content = m.get("content", [])
         for block in content:
@@ -82,7 +104,50 @@ def resolve_agreed_date(tool_input: dict, messages: list) -> str:
                 parsed = calendar_service.parse_date_preference(txt, now_dublin)
                 if parsed:
                     return parsed
-    return now_dublin.strftime("%Y-%m-%d")
+    return today_iso
+
+def resolve_agreed_slot_time(tool_input: dict, messages: list, target_date: str = "") -> str:
+    """Extracts slot_time from tool_input, confirmed tool results, or conversation history, preventing past slots."""
+    now_dublin = datetime.now(DUBLIN_TZ)
+    today_iso = now_dublin.strftime("%Y-%m-%d")
+    is_today = (target_date == today_iso)
+    cutoff_str = now_dublin.strftime("%H:%M")
+
+    # 1. If explicit slot_time provided in tool_input
+    raw_slot = tool_input.get("slot_time")
+    if raw_slot:
+        parsed = calendar_service.parse_time_preference(raw_slot)
+        if parsed:
+            if not is_today or parsed >= cutoff_str:
+                return parsed
+
+    # 2. Check the most recent check_calendar_slots tool result
+    last_check = find_last_calendar_check(messages)
+    if last_check:
+        suggested = last_check.get("suggested_slots_to_quote", [])
+        for s in suggested:
+            if not is_today or s >= cutoff_str:
+                return s
+        all_open = last_check.get("all_open_slots", [])
+        for s in all_open:
+            if not is_today or s >= cutoff_str:
+                return s
+
+    # 3. Search backwards in conversation history for the quoted time
+    for m in reversed(messages):
+        content = m.get("content", [])
+        for block in content:
+            txt = ""
+            if isinstance(block, dict) and "text" in block:
+                txt = block["text"]
+            elif isinstance(block, str):
+                txt = block
+            if txt:
+                parsed = calendar_service.parse_time_preference(txt)
+                if parsed and (not is_today or parsed >= cutoff_str):
+                    return parsed
+
+    return "10:00"
 
 def extract_text_tool_calls(text: str):
     """
@@ -202,7 +267,7 @@ async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on
             )
         elif t_name == "book_calendar_slot":
             target_date = resolve_agreed_date(t_in, messages)
-            slot_time = resolve_agreed_slot_time(t_in, messages)
+            slot_time = resolve_agreed_slot_time(t_in, messages, target_date)
             patient_name = t_in.get("patient_name") or (matched["name"] if matched else "Caller")
             patient_dob = t_in.get("patient_dob") or (matched["dob"] if matched else "Unknown")
             cat = t_in.get("appointment_category") or "Routine GP"
