@@ -111,7 +111,7 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s06_t1", "text": "Hello, I'd like an appointment with Dr. Yousuf on Thursday morning at 10:30 am."},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book that for me."}
+            {"turn_index": 2, "turn_key": "s06_t2", "text": "The first slot, 9 am works for me, please go ahead and book it."}
         ]
     },
     {
@@ -230,7 +230,7 @@ TEST_SCRIPTS = [
         "id": "script_21",
         "clinician": "Dr. Yousuf",
         "turns": [
-            {"turn_index": 1, "turn_key": "s21_t1", "text": "Hi, I need an appointment with Dr. Yousuf on Monday at 3:15 pm."},
+            {"turn_index": 1, "turn_key": "s21_t1", "text": "Hi, I need an appointment with Dr. Yousuf on Wednesday morning at 10:15 am."},
             {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
         ]
     },

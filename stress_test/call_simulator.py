@@ -69,10 +69,21 @@ class SimulatedCall:
                             break
                         last_bot_reply = self.metric.turns[-1].bot_reply_text.lower()
                         if any(k in last_bot_reply for k in ["booked", "available", "open", "prefer", "suit", "another time", "alternatively"]):
+                            import re
+                            slots = re.findall(r"\b(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.))\b", last_bot_reply, flags=re.IGNORECASE)
+                            if slots:
+                                chosen_slot = slots[0].strip()
+                                alt_text = f"The first slot, {chosen_slot} works for me, please go ahead and book it."
+                                safe_slot = re.sub(r"[^a-zA-Z0-9]", "", chosen_slot)
+                                turn_key = f"alt_slot_{safe_slot}"
+                            else:
+                                alt_text = "Yes, that alternative time you mentioned works for me, please go ahead and book it."
+                                turn_key = "alternative_slot_confirm"
+
                             alt_turn = {
                                 "turn_index": len(self.metric.turns) + 1,
-                                "turn_key": "alternative_slot_confirm",
-                                "text": "Yes, that alternative time you mentioned works for me, please go ahead and book it.",
+                                "turn_key": turn_key,
+                                "text": alt_text,
                                 "expected_tool": "book_calendar_slot"
                             }
                             await self._execute_turn(ws, alt_turn)

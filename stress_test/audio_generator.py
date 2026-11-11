@@ -124,6 +124,15 @@ def get_turn_audio_bytes(text: str, turn_key: str) -> bytes:
             print(f"[WARN] Failed to load WAV fixture {fixture_path.name}: {e}")
 
     if speech is None:
+        # Try dynamic speech synthesis via generate_fixtures if available
+        try:
+            from generate_fixtures import synthesize_with_kokoro, synthesize_with_macos_say, synthesize_with_espeak
+            if synthesize_with_kokoro(text, fixture_path) or synthesize_with_macos_say(text, fixture_path) or synthesize_with_espeak(text, fixture_path):
+                speech = load_wav_pcm_float32(fixture_path)
+        except Exception:
+            pass
+
+    if speech is None:
         words = text.split()
         duration = max(1.8, len(words) * 0.32)
         speech = generate_synthetic_speech(duration_sec=duration)
