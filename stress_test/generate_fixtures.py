@@ -127,6 +127,10 @@ def generate_all_fixtures(force: bool = False):
 
     # Add dynamic alternative slot confirm fixture
     items_to_generate.append((
+        "first_slot_confirm",
+        "Book first slot, that works for me."
+    ))
+    items_to_generate.append((
         "alternative_slot_confirm",
         "Yes, that alternative time you mentioned works for me, please go ahead and book it."
     ))
