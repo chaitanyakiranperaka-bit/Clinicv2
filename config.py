@@ -11,6 +11,14 @@ SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "/home/ubuntu/se
 KNOWN_PATIENTS = {
     "+353871234567": {"name": "Sean Murphy", "dob": "14/03/1982"},
     "+353869876543": {"name": "Aoife Kelly", "dob": "22/08/1990"},
+    "+353871112233": {"name": "Patrick Byrne", "dob": "05/11/1975"},
+    "+353852223344": {"name": "Ciara Doyle", "dob": "19/04/1995"},
+    "+353893334455": {"name": "Liam O'Connor", "dob": "30/01/1988"},
+    "+353874445566": {"name": "Siobhan Walsh", "dob": "12/09/1984"},
+    "+353865556677": {"name": "Conor Ryan", "dob": "03/07/1992"},
+    "+353876667788": {"name": "Niamh O'Brien", "dob": "25/12/1986"},
+    "+353857778899": {"name": "Eoin McCarthy", "dob": "17/06/1991"},
+    "+353898889900": {"name": "Roisin Gallagher", "dob": "08/02/1989"},
 }
 
 CLINICIANS = {

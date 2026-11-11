@@ -185,9 +185,8 @@ async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on
         print(f"[TOOL TRIGGERED]: {t_name} with {t_in}", flush=True)
         if on_tool_start:
             await on_tool_start(t_name)
-        if on_tool_log:
-            await on_tool_log(f"{t_name}({json.dumps(t_in)})")
 
+        res = None
         if t_name == "check_calendar_slots":
             target_date = normalize_date(t_in.get("date"), last_user_text)
             raw_pref = t_in.get("time_preference")
@@ -195,7 +194,7 @@ async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on
                 detected_time = calendar_service.parse_time_preference(last_user_text)
                 if detected_time:
                     raw_pref = detected_time
-            return await asyncio.to_thread(
+            res = await asyncio.to_thread(
                 calendar_service.check_calendar_slots,
                 t_in.get("clinician", "Dr. Yousuf"),
                 target_date,
@@ -220,14 +219,17 @@ async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on
             )
             if res.get("success") and on_booking:
                 await on_booking(res["booking"])
-            return res
         elif t_name == "trigger_emergency_divert":
             cat = t_in.get("emergency_category", "Emergency")
             if on_emergency:
                 await on_emergency(cat)
-            return {"status": "Alert logged. Instruct caller immediately to dial 999 or 112."}
+            res = {"status": "Alert logged. Instruct caller immediately to dial 999 or 112."}
         else:
-            return {"error": f"Unknown tool {t_name}"}
+            res = {"error": f"Unknown tool {t_name}"}
+
+        if on_tool_log:
+            await on_tool_log(f"{t_name}({json.dumps(t_in)}) completed")
+        return res
 
     # Branch 1: Native Bedrock toolUse
     if native_tool_calls:
