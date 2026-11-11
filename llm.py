@@ -5,7 +5,7 @@ import asyncio
 from datetime import datetime, timedelta
 import boto3
 from botocore.config import Config
-from config import AWS_REGION, BEDROCK_MODEL_ID, BEDROCK_TOOLS, DUBLIN_TZ, KNOWN_PATIENTS
+from config import AWS_REGION, BEDROCK_MODEL_ID, BEDROCK_TOOLS, DUBLIN_TZ, KNOWN_PATIENTS, get_known_patient
 import calendar_service
 
 print(f"[INIT LLM] Connecting to Bedrock ({AWS_REGION} | {BEDROCK_MODEL_ID})...", flush=True)
@@ -179,7 +179,7 @@ async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on
             if last_user_text:
                 break
 
-    matched = KNOWN_PATIENTS.get(caller_phone)
+    matched = get_known_patient(caller_phone)
 
     async def run_tool(t_name: str, t_in: dict):
         print(f"[TOOL TRIGGERED]: {t_name} with {t_in}", flush=True)

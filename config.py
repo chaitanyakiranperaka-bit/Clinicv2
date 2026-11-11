@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -109,11 +110,31 @@ def generate_calendar_reference(days_ahead: int = 14) -> str:
         lines.append(f"  * {full_str} -> {iso}{tag}")
     return "\n".join(lines)
 
+def normalize_phone(phone: str) -> str:
+    """Normalizes phone number string, handling URL query artifact where '+' was decoded as ' '."""
+    if not phone:
+        return ""
+    cleaned = phone.strip()
+    return cleaned if cleaned.startswith("+") else "+" + cleaned
+
+def get_known_patient(phone: str) -> Optional[dict]:
+    """Retrieves patient profile matching phone number regardless of leading '+' or space."""
+    if not phone:
+        return None
+    p = normalize_phone(phone)
+    if p in KNOWN_PATIENTS:
+        return KNOWN_PATIENTS[p]
+    without_plus = p.lstrip("+")
+    for k, v in KNOWN_PATIENTS.items():
+        if k.lstrip("+") == without_plus:
+            return v
+    return None
+
 def build_system_prompt(caller_phone: str) -> str:
     cal_schedule = generate_calendar_reference(14)
-    matched = KNOWN_PATIENTS.get(caller_phone)
+    matched = get_known_patient(caller_phone)
     caller_ctx = (
-        f"Caller is known patient '{matched['name']}' (DOB: {matched['dob']}). Verify identity and confirm DOB before booking."
+        f"Caller is verified enrolled patient '{matched['name']}' (DOB: {matched['dob']}). When they select or agree to a slot, immediately execute book_calendar_slot using their enrolled details."
         if matched else
         f"Caller ID {caller_phone} is new. Ask for Full Name and DOB before booking."
     )

@@ -1,6 +1,7 @@
 import json
 import time
 import asyncio
+import urllib.parse
 from typing import Dict, Any, Optional
 
 try:
@@ -35,7 +36,7 @@ class SimulatedCall:
         self.call_id = call_id
         self.caller_phone = caller_phone
         self.script = script
-        self.ws_url = f"{ws_url}?caller_id={caller_phone}"
+        self.ws_url = f"{ws_url}?caller_id={urllib.parse.quote(caller_phone)}"
         self.timeout_sec = timeout_sec
         self.metric = CallMetric(
             call_id=call_id,

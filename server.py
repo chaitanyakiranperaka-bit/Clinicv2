@@ -9,7 +9,14 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from silero_vad import load_silero_vad
 
-from config import build_system_prompt, KNOWN_PATIENTS, GOOGLE_CALENDAR_ID, BEDROCK_MODEL_ID
+from config import (
+    build_system_prompt,
+    KNOWN_PATIENTS,
+    GOOGLE_CALENDAR_ID,
+    BEDROCK_MODEL_ID,
+    normalize_phone,
+    get_known_patient
+)
 import calendar_service
 import stt
 import tts
@@ -110,7 +117,8 @@ async def get_status():
 @app.websocket("/ws/call")
 async def call_websocket(websocket: WebSocket):
     await websocket.accept()
-    caller_phone = websocket.query_params.get("caller_id", "+353871234567")
+    raw_phone = websocket.query_params.get("caller_id", "+353871234567")
+    caller_phone = normalize_phone(raw_phone)
     system_prompt = build_system_prompt(caller_phone)
     print(f"\n[WS CONNECTED] Inbound call from: {caller_phone}", flush=True)
 
@@ -182,7 +190,7 @@ async def call_websocket(websocket: WebSocket):
                 await send_json({"type": "audio", "b64": b64_wav})
 
     # Greeting
-    matched = KNOWN_PATIENTS.get(caller_phone)
+    matched = get_known_patient(caller_phone)
     greeting = (
         f"Hello, welcome to Star Dental and GP Clinic in Clonsilla. You are speaking with Deirdre. Am I speaking with {matched['name']}?"
         if matched else
