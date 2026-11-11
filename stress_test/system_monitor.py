@@ -5,6 +5,11 @@ import asyncio
 import subprocess
 from typing import Dict, Any, List, Optional
 
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
 class SystemMonitor:
     """Asynchronous background resource monitor tracking CPU, RAM, and NVIDIA A10G GPU."""
 
@@ -61,10 +66,11 @@ class SystemMonitor:
 
     def _get_cpu_ram(self):
         try:
-            import psutil
-            cpu = psutil.cpu_percent(interval=None)
-            ram = psutil.virtual_memory().percent
-            return cpu, ram
+            if psutil:
+                cpu = psutil.cpu_percent(interval=None)
+                ram = psutil.virtual_memory().percent
+                return cpu, ram
+            return None, None
         except Exception:
             return None, None
 

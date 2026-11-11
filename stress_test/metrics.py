@@ -141,6 +141,16 @@ class MetricsCollector:
         print(f" Timed Out Calls:      {s['timed_out_calls']}")
         print(f" Google Cal Bookings:  {s['bookings_created']}")
         print(f" Throughput:           {s['calls_per_minute']} calls/min")
+
+        if s["failed_calls"] > 0 or s["timed_out_calls"] > 0:
+            print("-" * 78)
+            print(" FAILURE REASONS:")
+            errors = {}
+            for c in self.calls:
+                if c.error:
+                    errors[c.error] = errors.get(c.error, 0) + 1
+            for err, count in errors.items():
+                print(f"   • ({count}x) {err}")
         print("-" * 78)
 
         ttfa = s["ttfa_metrics"]

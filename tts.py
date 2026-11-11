@@ -1,12 +1,14 @@
 import io
 import re
 import base64
+import threading
 import numpy as np
 import soundfile as sf
 from kokoro import KPipeline
 
 print("[INIT TTS] Loading Kokoro-82M (bf_isabella)...", flush=True)
 tts_pipeline = KPipeline(lang_code="b")
+tts_lock = threading.Lock()
 
 EMOJI_PATTERN = re.compile(
     "["
@@ -59,8 +61,9 @@ def synthesize_wav_base64(text: str) -> str:
     if not clean:
         return ""
     try:
-        generator = tts_pipeline(clean, voice="bf_isabella", speed=1.0)
-        chunks = [audio for _, _, audio in generator]
+        with tts_lock:
+            generator = tts_pipeline(clean, voice="bf_isabella", speed=1.0)
+            chunks = [audio for _, _, audio in generator]
         if not chunks:
             return ""
         combined = np.concatenate(chunks)
