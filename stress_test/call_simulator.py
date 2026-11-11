@@ -1,0 +1,177 @@
+import json
+import time
+import asyncio
+from typing import Dict, Any, Optional
+
+try:
+    import websockets
+except ImportError:
+    websockets = None
+
+from stress_config import (
+    WS_URL,
+    SAMPLE_RATE,
+    FRAME_SIZE,
+    FRAME_DURATION_SEC,
+    CALL_TIMEOUT_SEC
+)
+from audio_generator import get_turn_audio_bytes
+from metrics import CallMetric, TurnMetric
+
+# 512 float32 samples = 2048 bytes
+FRAME_BYTES = FRAME_SIZE * 4
+
+class SimulatedCall:
+    """Simulates a stateful caller interacting with the voice receptionist WebSocket."""
+
+    def __init__(
+        self,
+        call_id: str,
+        caller_phone: str,
+        script: Dict[str, Any],
+        ws_url: str = WS_URL,
+        timeout_sec: float = CALL_TIMEOUT_SEC
+    ):
+        self.call_id = call_id
+        self.caller_phone = caller_phone
+        self.script = script
+        self.ws_url = f"{ws_url}?caller_id={caller_phone}"
+        self.timeout_sec = timeout_sec
+        self.metric = CallMetric(
+            call_id=call_id,
+            caller_phone=caller_phone,
+            clinician=script.get("clinician", "Dr. Yousuf")
+        )
+
+    async def run(self) -> CallMetric:
+        if websockets is None:
+            self.metric.status = "FAILED"
+            self.metric.error = "Module 'websockets' is not installed."
+            self.metric.ended_at = time.time()
+            return self.metric
+
+        try:
+            async with asyncio.timeout(self.timeout_sec):
+                async with websockets.connect(self.ws_url) as ws:
+                    # 1. Wait for Deirdre's greeting
+                    await self._wait_for_greeting(ws)
+                    self.metric.greeting_received = True
+
+                    # 2. Execute conversational turns from script
+                    for turn_data in self.script.get("turns", []):
+                        await self._execute_turn(ws, turn_data)
+
+                    # 3. Graceful Hangup
+                    await ws.send(json.dumps({"action": "hangup"}))
+                    await asyncio.sleep(0.1)
+
+                    self.metric.status = "SUCCESS"
+        except asyncio.TimeoutError:
+            self.metric.status = "TIMEOUT"
+            self.metric.error = f"Call timed out after {self.timeout_sec}s"
+        except Exception as e:
+            self.metric.status = "FAILED"
+            self.metric.error = str(e)
+        finally:
+            self.metric.ended_at = time.time()
+
+        return self.metric
+
+    async def _wait_for_greeting(self, ws):
+        """Awaits initial bot greeting audio and transcripts."""
+        greeting_audio_count = 0
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            try:
+                raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
+                if isinstance(raw, str):
+                    data = json.loads(raw)
+                    if data.get("type") == "audio":
+                        greeting_audio_count += 1
+                        await ws.send(json.dumps({"action": "playback_finished"}))
+                        break
+                    elif data.get("type") == "transcript" and data.get("role") == "Deirdre":
+                        pass
+            except asyncio.TimeoutError:
+                if greeting_audio_count > 0:
+                    break
+        await asyncio.sleep(0.4)
+
+    async def _execute_turn(self, ws, turn_data: Dict[str, Any]):
+        """Streams caller audio and tracks VAD, STT, LLM, GCal, and TTS responses."""
+        turn_idx = turn_data["turn_index"]
+        text = turn_data["text"]
+        turn_key = f"{self.script['id']}_t{turn_idx}"
+
+        turn_metric = TurnMetric(
+            turn_index=turn_idx,
+            user_text=text
+        )
+        self.metric.turns.append(turn_metric)
+
+        # Get audio bytes (16kHz float32 PCM with trailing silence)
+        audio_bytes = get_turn_audio_bytes(text, turn_key)
+        total_samples = len(audio_bytes) // 4
+        turn_metric.speech_duration_sec = total_samples / SAMPLE_RATE
+
+        # Stream audio frames in real time
+        pos = 0
+        while pos < len(audio_bytes):
+            chunk = audio_bytes[pos : pos + FRAME_BYTES]
+            if len(chunk) < FRAME_BYTES:
+                chunk = chunk + b"\x00" * (FRAME_BYTES - len(chunk))
+            
+            # Send raw float32 PCM frame bytes
+            await ws.send(chunk)
+            pos += FRAME_BYTES
+            await asyncio.sleep(FRAME_DURATION_SEC * 0.95)
+
+        turn_metric.speech_ended_at = time.time()
+
+        # Listen for Deirdre's response events
+        await self._receive_turn_response(ws, turn_metric)
+
+    async def _receive_turn_response(self, ws, turn_metric: TurnMetric):
+        """Collects server response packets for the current turn."""
+        turn_timeout = time.time() + 25.0
+        last_packet_time = time.time()
+
+        while time.time() < turn_timeout:
+            try:
+                raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
+                now = time.time()
+                last_packet_time = now
+
+                if isinstance(raw, str):
+                    data = json.loads(raw)
+                    msg_type = data.get("type")
+
+                    if msg_type == "vad_state":
+                        if not data.get("speaking") and not turn_metric.vad_detected_at:
+                            turn_metric.vad_detected_at = now
+
+                    elif msg_type == "tool_log":
+                        turn_metric.tool_finished_at = now
+
+                    elif msg_type == "booking_created":
+                        self.metric.booking_created = True
+                        self.metric.booking_details = data.get("booking")
+
+                    elif msg_type == "transcript" and data.get("role") == "Deirdre":
+                        if not turn_metric.first_transcript_at:
+                            turn_metric.first_transcript_at = now
+                        turn_metric.bot_reply_text += " " + data.get("text", "")
+
+                    elif msg_type == "audio":
+                        if not turn_metric.first_audio_at:
+                            turn_metric.first_audio_at = now
+                        turn_metric.audio_packets_received += 1
+                        turn_metric.total_audio_bytes_received += len(data.get("b64", ""))
+
+            except asyncio.TimeoutError:
+                if turn_metric.first_audio_at and (time.time() - last_packet_time >= 2.0):
+                    break
+
+        turn_metric.turn_completed_at = time.time()
+        await ws.send(json.dumps({"action": "playback_finished"}))
+        await asyncio.sleep(0.3)
