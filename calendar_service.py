@@ -289,13 +289,18 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
 
     # 1. Reject past dates
     if query_date.date() < now_dublin.date():
-        tomorrow_iso = (now_dublin + timedelta(days=1)).strftime("%Y-%m-%d")
+        tomorrow_dt = now_dublin + timedelta(days=1)
+        if tomorrow_dt.weekday() == 6:
+            tomorrow_dt += timedelta(days=1)
+        tomorrow_iso = tomorrow_dt.strftime("%Y-%m-%d")
         tomorrow_fmt = format_human_date(tomorrow_iso)
         return {
             "status": "error",
             "available": False,
             "date": date_str,
             "formatted_date": formatted_date,
+            "next_open_date": tomorrow_iso,
+            "next_open_date_formatted": tomorrow_fmt,
             "suggested_slots_to_quote": [],
             "all_open_slots": [],
             "availability_verdict": f"{formatted_date} has already passed.",
@@ -314,6 +319,8 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
             "closed": True,
             "date": date_str,
             "formatted_date": formatted_date,
+            "next_open_date": next_monday_iso,
+            "next_open_date_formatted": next_monday_fmt,
             "message": f"The clinic is closed on Sundays ({formatted_date}). Please offer {next_monday_fmt} ({next_monday_iso}) or advise D-Doc/K-Doc GP cooperative for urgent issues."
         }
 
@@ -330,26 +337,30 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
 
     if not free_slots:
         is_today = (date_str == now_dublin.strftime("%Y-%m-%d"))
-        tomorrow_dt = now_dublin + timedelta(days=1)
-        if tomorrow_dt.weekday() == 6:
-            tomorrow_dt += timedelta(days=1)
-        tomorrow_iso = tomorrow_dt.strftime("%Y-%m-%d")
-        tomorrow_fmt = format_human_date(tomorrow_iso)
-        next_week_iso = (query_date + timedelta(days=7)).strftime("%Y-%m-%d")
+        next_day_dt = query_date + timedelta(days=1)
+        if next_day_dt.weekday() == 6:
+            next_day_dt += timedelta(days=1)
+        next_day_iso = next_day_dt.strftime("%Y-%m-%d")
+        next_day_fmt = format_human_date(next_day_iso)
+        next_week_dt = query_date + timedelta(days=7)
+        if next_week_dt.weekday() == 6:
+            next_week_dt += timedelta(days=1)
+        next_week_iso = next_week_dt.strftime("%Y-%m-%d")
         next_week_fmt = format_human_date(next_week_iso)
 
         if is_today:
             msg = f"All appointment slots for today ({formatted_date}) have already passed or are fully booked."
             instruction = (
                 f"Tell the caller: 'All appointments for today ({formatted_date}) have already passed. "
-                f"The earliest available day is {tomorrow_fmt}. Would you like me to check times for {tomorrow_fmt}?' "
+                f"The next open clinic day is {next_day_fmt}. Would you like me to check times for {next_day_fmt}?' "
                 f"CRITICAL: Do NOT quote or invent any times for {formatted_date}."
             )
         else:
             msg = f"No remaining open slots for {clinician} on {formatted_date}."
             instruction = (
                 f"Tell the caller: 'I am sorry, but {clinician} has no remaining appointments available on {formatted_date}. "
-                f"Would you like me to check {tomorrow_fmt} or next week on {next_week_fmt}?' "
+                f"Would you like me to check the next open day on {next_day_fmt}, or next week on {next_week_fmt}?' "
+                f"NOTE: If the caller wants the earliest available day, call check_calendar_slots with date='{next_day_iso}'. "
                 f"CRITICAL: Do NOT quote or invent any times for {formatted_date}."
             )
 
@@ -358,6 +369,8 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
             "available": False,
             "date": date_str,
             "formatted_date": formatted_date,
+            "next_open_date": next_day_iso,
+            "next_open_date_formatted": next_day_fmt,
             "suggested_slots_to_quote": [],
             "all_open_slots": [],
             "availability_verdict": msg,
