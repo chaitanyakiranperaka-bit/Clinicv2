@@ -456,7 +456,27 @@ def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_na
 
     booked = list_booked_slots_for_date(clinician, date_str)
     if slot_time in booked:
-        return {"success": False, "error": f"{slot_time} with {clinician} on {date_str} is already booked."}
+        today_iso = now_dublin.strftime("%Y-%m-%d")
+        cutoff_str = now_dublin.strftime("%H:%M")
+        all_open = [s for s in ALL_DAILY_SLOTS if s not in booked and (date_str != today_iso or s >= cutoff_str)]
+        suggested = all_open[:3]
+        if suggested:
+            suggested_spoken = ", ".join(format_spoken_time(s) for s in suggested)
+            return {
+                "success": False,
+                "error": f"{slot_time} with {clinician} on {date_str} is already booked.",
+                "suggested_slots_to_quote": suggested,
+                "all_open_slots": all_open,
+                "instruction": f"Tell the caller: 'I apologize, but {format_spoken_time(slot_time)} was just taken. However, I have {suggested_spoken} open on that day. Would one of those suit you?'"
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"{slot_time} with {clinician} on {date_str} is already booked, and no remaining slots exist on that date.",
+                "suggested_slots_to_quote": [],
+                "all_open_slots": [],
+                "instruction": f"Tell the caller: 'I apologize, but {format_spoken_time(slot_time)} was just taken and all other appointments for {format_human_date(date_str)} are full. Would you like me to check next week instead?'"
+            }
 
     start_dt = appt_dt
     end_dt = start_dt + timedelta(minutes=15)

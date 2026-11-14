@@ -113,8 +113,8 @@ class SimulatedCall:
         if any(p in last_reply for p in ["no remaining", "fully booked", "no appointment", "check next week", "check monday", "check tuesday", "check wednesday", "check thursday", "check friday", "instead"]):
             return {
                 "turn_index": turn_idx,
-                "turn_key": "alternative_slot_confirm",
-                "text": "Yes, that alternative day works for me. Please check that.",
+                "turn_key": "confirm_std",
+                "text": "Yes, please confirm that booking for me.",
                 "expected_tool": "check_calendar_slots"
             }
 
