@@ -200,7 +200,7 @@ def extract_text_tool_calls(text: str):
 
     return tool_calls, clean_text
 
-async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on_tool_log=None, on_booking=None, on_emergency=None, on_tool_start=None):
+async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on_tool_log=None, on_booking=None, on_emergency=None, on_tool_start=None, on_tool_result=None):
     try:
         response = await asyncio.to_thread(
             bedrock_client.converse,
@@ -250,7 +250,7 @@ async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on
     async def run_tool(t_name: str, t_in: dict):
         print(f"[TOOL TRIGGERED]: {t_name} with {t_in}", flush=True)
         if on_tool_start:
-            await on_tool_start(t_name)
+            await on_tool_start(t_name, t_in)
 
         res = None
         if t_name == "check_calendar_slots":
@@ -293,6 +293,8 @@ async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on
         else:
             res = {"error": f"Unknown tool {t_name}"}
 
+        if on_tool_result:
+            await on_tool_result(t_name, t_in, res)
         if on_tool_log:
             await on_tool_log(f"{t_name}({json.dumps(t_in)}) completed")
         return res

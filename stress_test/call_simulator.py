@@ -207,9 +207,24 @@ class SimulatedCall:
                     elif msg_type == "tool_start":
                         turn_metric.tool_name = data.get("tool")
                         turn_metric.tool_started_at = now
+                        turn_metric.tool_input = data.get("input", {})
+
+                    elif msg_type == "tool_result":
+                        turn_metric.tool_finished_at = now
+                        t_name = data.get("tool") or turn_metric.tool_name
+                        t_in = data.get("input") or turn_metric.tool_input or {}
+                        t_res = data.get("result", {})
+                        dur = round((now - (turn_metric.tool_started_at or now)) * 1000.0, 1)
+                        turn_metric.tool_calls.append({
+                            "tool": t_name,
+                            "input": t_in,
+                            "result": t_res,
+                            "duration_ms": dur
+                        })
 
                     elif msg_type == "tool_log":
-                        turn_metric.tool_finished_at = now
+                        if not turn_metric.tool_finished_at:
+                            turn_metric.tool_finished_at = now
 
                     elif msg_type == "booking_created":
                         self.metric.booking_created = True

@@ -220,9 +220,9 @@ async def call_websocket(websocket: WebSocket):
 
     filler_sent_this_turn = False
 
-    async def handle_tool_start(tool_name: str):
+    async def handle_tool_start(tool_name: str, tool_input: dict = None):
         nonlocal filler_sent_this_turn
-        await send_json({"type": "tool_start", "tool": tool_name})
+        await send_json({"type": "tool_start", "tool": tool_name, "input": tool_input or {}})
         # If filler audio was already played at the start of this turn, do not repeat
         if filler_sent_this_turn:
             return
@@ -239,6 +239,14 @@ async def call_websocket(websocket: WebSocket):
             if filler_text:
                 await send_json({"type": "transcript", "role": "Deirdre", "text": filler_text})
             await send_json({"type": "audio", "b64": filler_b64})
+
+    async def handle_tool_result(tool_name: str, tool_input: dict, tool_result: dict):
+        await send_json({
+            "type": "tool_result",
+            "tool": tool_name,
+            "input": tool_input or {},
+            "result": tool_result or {}
+        })
 
     async def process_user_turn(audio_np: np.ndarray):
         nonlocal is_processing_turn, current_turn_task, unspoken_sentences, current_speaking_sentence, filler_sent_this_turn
@@ -308,7 +316,8 @@ async def call_websocket(websocket: WebSocket):
                 on_tool_log=lambda msg: send_json({"type": "tool_log", "text": msg}),
                 on_booking=lambda b: send_json({"type": "booking_created", "booking": b}),
                 on_emergency=lambda cat: send_json({"type": "emergency_alert", "text": cat}),
-                on_tool_start=handle_tool_start
+                on_tool_start=handle_tool_start,
+                on_tool_result=handle_tool_result
             )
 
             if reply_text and not my_task.cancelled():

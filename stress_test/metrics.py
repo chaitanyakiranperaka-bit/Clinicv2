@@ -17,8 +17,10 @@ class TurnMetric:
     first_audio_at: Optional[float] = None
     turn_completed_at: Optional[float] = None
     tool_name: Optional[str] = None
+    tool_input: Optional[Dict[str, Any]] = None
     tool_started_at: Optional[float] = None
     tool_finished_at: Optional[float] = None
+    tool_calls: List[Dict[str, Any]] = field(default_factory=list)
     bot_reply_text: str = ""
     audio_packets_received: int = 0
     total_audio_bytes_received: int = 0
@@ -54,7 +56,9 @@ class TurnMetric:
             "vad_latency_ms": round(self.vad_latency * 1000.0, 1) if self.vad_latency is not None else None,
             "ttfa_delay_ms": round(self.ttfa * 1000.0, 1) if self.ttfa is not None else None,
             "tool_name": self.tool_name,
+            "tool_input": self.tool_input,
             "tool_duration_ms": round(self.tool_duration * 1000.0, 1) if self.tool_duration is not None else None,
+            "tool_calls": self.tool_calls,
             "bot_reply_text": self.bot_reply_text.strip(),
             "audio_packets_received": self.audio_packets_received
         }
@@ -125,9 +129,17 @@ class CallMetric:
             lines.append(f"              • Caller finished speaking:  +{sp_end_rel:06.3f}s")
             if t.vad_latency is not None:
                 lines.append(f"              • VAD Silence Detected:     +{t.vad_latency * 1000.0:0.0f}ms after speech")
-            if t.tool_name:
+            if t.tool_calls:
+                for tc in t.tool_calls:
+                    tc_dur = f"{tc.get('duration_ms', 0):.0f}ms"
+                    lines.append(f"              • Tool Executed:            {tc.get('tool')} ({tc_dur})")
+                    lines.append(f"                - Arguments: {json.dumps(tc.get('input', {}))}")
+                    lines.append(f"                - Response:  {json.dumps(tc.get('result', {}))}")
+            elif t.tool_name:
                 t_dur = f"{t.tool_duration * 1000.0:0.0f}ms" if t.tool_duration is not None else "In Progress"
                 lines.append(f"              • Tool Executed:            {t.tool_name} (Duration: {t_dur})")
+                if t.tool_input:
+                    lines.append(f"                - Arguments: {json.dumps(t.tool_input)}")
             if t.ttfa is not None:
                 lines.append(f"              • Inter-Message Delay (TTFA): {t.ttfa * 1000.0:0.0f}ms  <-- Caller waited")
             lines.append("           " + "-" * 60)
@@ -278,6 +290,29 @@ class MetricsCollector:
             print(" GOOGLE CALENDAR TOOL EXECUTION LATENCY:")
             print(f"   • Mean: {tool['mean']}s  |  p50: {tool['p50']}s  |  p95: {tool['p95']}s  |  Max: {tool['max']}s")
 
+        # Collect and print tool calls & responses
+        all_tool_calls = []
+        for c in self.calls:
+            for t in c.turns:
+                for tc in t.tool_calls:
+                    all_tool_calls.append(tc)
+
+        if all_tool_calls:
+            from collections import Counter
+            counts = Counter(tc.get("tool") for tc in all_tool_calls)
+            print("-" * 78)
+            print(f" TOOL CALLS & RESPONSES ({len(all_tool_calls)} total executions):")
+            for t_name, count in counts.items():
+                print(f"   • {t_name}: {count} executions")
+            print("   • Recent Tool Invocations & Responses:")
+            for tc in all_tool_calls[-5:]:
+                t_name = tc.get("tool")
+                t_in = json.dumps(tc.get("input", {}))
+                t_res = json.dumps(tc.get("result", {}))
+                if len(t_res) > 85:
+                    t_res = t_res[:82] + "..."
+                print(f"     -> {t_name}({t_in}) => {t_res}")
+
         print("=" * 78 + "\n")
 
     def export_conversations(self, output_dir: Path):
@@ -292,7 +327,7 @@ class MetricsCollector:
 
         index_md_rows = []
         index_md_rows.append("# Conversation Audit Index\n")
-        index_md_rows.append("| Call ID | Patient Name | Phone | Clinician | Status | Duration | Mean TTFA | Booked |")
+        index_md_rows.append("| Call ID | Patient Name | Phone | Clinician | Status | Duration | Mean TTFA | Tool Calls & Results |")
         index_md_rows.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
 
         for c in self.calls:
@@ -309,12 +344,17 @@ class MetricsCollector:
             # 2. Append to combined master log
             combined_lines.append(transcript)
 
-            # 3. Index row
+            # 3. Index row with tool execution summary
             ttfas = [t.ttfa for t in c.turns if t.ttfa is not None]
             avg_ttfa = f"{statistics.mean(ttfas) * 1000:.0f}ms" if ttfas else "N/A"
-            booked_str = "🟢 Yes" if c.booking_created else "⚪ No"
+            tool_summary_parts = []
+            for t in c.turns:
+                for tc in t.tool_calls:
+                    res_summary = "🟢 Booked" if tc.get("result", {}).get("success") else ("🟢 Slots" if "suggested_slots_to_quote" in tc.get("result", {}) else "Executed")
+                    tool_summary_parts.append(f"`{tc.get('tool')}` ({res_summary})")
+            tool_str = "<br>".join(tool_summary_parts) if tool_summary_parts else ("🟢 Booking Created" if c.booking_created else "None")
             index_md_rows.append(
-                f"| [{c.call_id}](calls/{filename}) | {c.patient_name} | `{c.caller_phone}` | {c.clinician} | **{c.status}** | {c.duration:.1f}s | {avg_ttfa} | {booked_str} |"
+                f"| [{c.call_id}](calls/{filename}) | {c.patient_name} | `{c.caller_phone}` | {c.clinician} | **{c.status}** | {c.duration:.1f}s | {avg_ttfa} | {tool_str} |"
             )
 
         # Write combined transcript
