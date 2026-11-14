@@ -30,7 +30,11 @@ def check_server_health(host: str, port: int) -> bool:
         with urllib.request.urlopen(req, timeout=4) as resp:
             if resp.status == 200:
                 body = json.loads(resp.read().decode("utf-8"))
-                print(f"  ✓ Server is healthy! Calendar: {body.get('calendar_badge')} | Model: {body.get('model_id')}")
+                badge = body.get('calendar_badge', '')
+                print(f"  ✓ Server is healthy! Calendar: {badge} | Model: {body.get('model_id')}")
+                if "Local Staging Queue" in badge:
+                    print("  ⚠️  ATTENTION: Server is in '🟡 Local Staging Queue' mode (Not connected to Live Google Calendar).")
+                    print("     Events in Google Calendar will NOT be seen or updated. Check service_account.json to enable live sync.")
                 return True
     except Exception as e:
         print(f"  ✗ Could not reach server at {status_url}: {e}")

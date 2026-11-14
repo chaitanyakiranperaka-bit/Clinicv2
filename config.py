@@ -7,7 +7,24 @@ DUBLIN_TZ = ZoneInfo("Europe/Dublin")
 AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "eu-west-1")
 BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "qwen.qwen3-coder-30b-a3b-v1:0")
 GOOGLE_CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID", "chaitanyakiran.peraka@gmail.com")
-SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "/home/ubuntu/service_account.json")
+
+def _resolve_service_account_path() -> str:
+    env_path = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")
+    if env_path and os.path.exists(env_path):
+        return env_path
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    project_sa = os.path.join(base_dir, "service_account.json")
+    if os.path.exists(project_sa):
+        return project_sa
+    home_sa = "/home/ubuntu/service_account.json"
+    if os.path.exists(home_sa):
+        return home_sa
+    cwd_sa = os.path.abspath("service_account.json")
+    if os.path.exists(cwd_sa):
+        return cwd_sa
+    return home_sa
+
+SERVICE_ACCOUNT_FILE = _resolve_service_account_path()
 
 KNOWN_PATIENTS = {
     "+353871234567": {"name": "Sean Murphy", "dob": "14/03/1982"},

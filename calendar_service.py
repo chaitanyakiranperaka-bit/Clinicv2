@@ -55,9 +55,9 @@ def list_booked_slots_for_date(clinician: str, date_str: str) -> list:
     service = get_gcal_service()
     if service:
         try:
-            # Query window from 08:00 to 18:00 to cover all daily appointments
-            day_start = datetime.strptime(date_str, "%Y-%m-%d").replace(hour=8, minute=0, tzinfo=DUBLIN_TZ)
-            day_end = datetime.strptime(date_str, "%Y-%m-%d").replace(hour=18, minute=0, tzinfo=DUBLIN_TZ)
+            # Query window from 00:00 to 23:59 to cover all daily appointments and all-day blocks
+            day_start = datetime.strptime(date_str, "%Y-%m-%d").replace(hour=0, minute=0, second=0, tzinfo=DUBLIN_TZ)
+            day_end = datetime.strptime(date_str, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=DUBLIN_TZ)
             events_result = service.events().list(
                 calendarId=GOOGLE_CALENDAR_ID,
                 timeMin=day_start.isoformat(),
@@ -67,14 +67,51 @@ def list_booked_slots_for_date(clinician: str, date_str: str) -> list:
             ).execute()
             
             clinician_lower = clinician.lower()
+            clinician_keywords = [clinician_lower, f"[{clinician_lower}]"]
+            if "nurse" in clinician_lower:
+                clinician_keywords.extend(["nurse kelly", "kelly", "nurse appointment", "nurse"])
+            elif "dentist" in clinician_lower or "shailaja" in clinician_lower:
+                clinician_keywords.extend(["dentist shailaja", "shailaja", "dental"])
+            elif "yousuf" in clinician_lower or "dr" in clinician_lower:
+                clinician_keywords.extend(["dr. yousuf", "yousuf", "dr yousuf", "routine gp", "gp"])
+
             for ev in events_result.get("items", []):
                 summary = ev.get("summary", "").lower()
-                # Check for [Dr. Yousuf] tag or clinician name in summary
-                if f"[{clinician_lower}]" in summary or clinician_lower in summary:
-                    start_iso = ev["start"].get("dateTime", "")
-                    if "T" in start_iso:
-                        dt = datetime.fromisoformat(start_iso).astimezone(DUBLIN_TZ)
-                        booked.add(dt.strftime("%H:%M"))
+                desc = ev.get("description", "").lower()
+                combined = f"{summary} {desc}"
+
+                is_clinician = any(k in combined for k in clinician_keywords)
+                is_clinic_wide = any(k in summary for k in ("closed", "holiday", "all staff", "unavailable", "out of office", "maintenance"))
+
+                if is_clinician or is_clinic_wide:
+                    start_data = ev.get("start", {})
+                    end_data = ev.get("end", {})
+
+                    # 1. All-Day Event (e.g. date: "2026-11-17")
+                    if "date" in start_data and not start_data.get("dateTime"):
+                        ev_start = start_data["date"]
+                        ev_end = end_data.get("date", ev_start)
+                        if ev_start <= date_str < ev_end or ev_start == date_str:
+                            for s in ALL_DAILY_SLOTS:
+                                booked.add(s)
+
+                    # 2. Timed Event (e.g. dateTime: "2026-11-17T09:30:00+00:00")
+                    elif "dateTime" in start_data:
+                        start_iso = start_data["dateTime"]
+                        end_iso = end_data.get("dateTime")
+                        if "T" in start_iso:
+                            dt_start = datetime.fromisoformat(start_iso).astimezone(DUBLIN_TZ)
+                            if end_iso and "T" in end_iso:
+                                dt_end = datetime.fromisoformat(end_iso).astimezone(DUBLIN_TZ)
+                            else:
+                                dt_end = dt_start + timedelta(minutes=15)
+
+                            # Block all 15-minute slots spanned by this appointment or block
+                            curr = dt_start
+                            while curr < dt_end:
+                                if curr.strftime("%Y-%m-%d") == date_str:
+                                    booked.add(curr.strftime("%H:%M"))
+                                curr += timedelta(minutes=15)
         except Exception as e:
             _thread_local.service = None
             print(f"[GCal Query Error]: {e}", flush=True)
