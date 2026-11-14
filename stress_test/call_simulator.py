@@ -67,12 +67,12 @@ class SimulatedCall:
                         await self._execute_turn(ws, turn_data)
 
                     # 3. Dynamic Alternative Slot Booking:
-                    # If after the initial turns the booking is not yet created, negotiate alternative slots (up to 2 retries under contention)
-                    for _ in range(2):
+                    # If after the initial turns the booking is not yet created, negotiate alternative slots (up to 4 retries under contention)
+                    for _ in range(4):
                         if self.metric.booking_created or not self.metric.turns:
                             break
                         last_bot_reply = self.metric.turns[-1].bot_reply_text.lower()
-                        if any(k in last_bot_reply for k in ["booked", "available", "open", "prefer", "suit", "another time", "alternatively"]):
+                        if any(k in last_bot_reply for k in ["booked", "available", "open", "prefer", "suit", "another time", "alternatively", "would you like me to book"]):
                             import re
                             # Strip out phrases stating a slot is unavailable or already taken
                             cleaned = re.sub(r"\b\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)\s+(?:is\s+not\s+available|has\s+already\s+passed|is\s+already\s+booked|is\s+booked|is\s+taken)\b", "", last_bot_reply, flags=re.IGNORECASE)
@@ -84,7 +84,7 @@ class SimulatedCall:
                                 safe_slot = re.sub(r"[^a-zA-Z0-9]", "", chosen_slot.lower().replace(".", ""))
                                 turn_key = f"alt_slot_{safe_slot}"
                             else:
-                                alt_text = "Yes, that alternative time you mentioned works for me, please go ahead and book it."
+                                alt_text = "Yes, please go ahead and book that appointment for me."
                                 turn_key = "alternative_slot_confirm"
 
                             alt_turn = {
