@@ -9,3 +9,6 @@ service_account.json
 kokoro-v1_0.pth
 *.wav
 !stress_test/audio_fixtures/*.wav
+
+.DS_Store
+*/.DS_Store
