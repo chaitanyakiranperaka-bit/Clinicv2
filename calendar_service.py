@@ -124,32 +124,39 @@ def list_booked_slots_for_date(clinician: str, date_str: str) -> list:
     return sorted(list(booked))
 
 def parse_time_preference(pref: str):
-    """Extracts a target slot HH:MM from strings like '10:30', '1030', '10am', '2pm', '10'."""
+    """Extracts a target slot HH:MM from strings like '10:30', '10.30', '11.45 am', '10am', '2pm', '10'."""
     if not pref:
         return None
     pref = pref.lower().strip()
     if pref in ("morning", "afternoon", "any"):
         return None
 
-    # 1. Standard HH:MM
-    m1 = re.search(r"\b(\d{1,2}):(\d{2})\b", pref)
+    # 1. Standard HH:MM or HH.MM with optional am/pm (e.g. '11:45', '11.45 am', '9.30am', '2.15 pm', '11.30')
+    m1 = re.search(r"\b(\d{1,2})[:.](\d{2})\s*(am|pm)?\b", pref)
     if m1:
-        return f"{int(m1.group(1)):02d}:{m1.group(2)}"
-
-    # 2. 4-digit colloquial/military time e.g. '1030', '0915', '1430'
-    m2 = re.search(r"\b([01]?\d|2[0-3])([0-5]\d)\b", pref)
-    if m2:
-        return f"{int(m2.group(1)):02d}:{m2.group(2)}"
-
-    # 3. 10am, 2pm, 10 am
-    m3 = re.search(r"\b(\d{1,2})\s*(am|pm)\b", pref)
-    if m3:
-        h = int(m3.group(1))
-        if m3.group(2) == "pm" and h < 12:
+        h = int(m1.group(1))
+        mins = m1.group(2)
+        period = m1.group(3)
+        if period == "pm" and h < 12:
             h += 12
-        elif m3.group(2) == "am" and h == 12:
+        elif period == "am" and h == 12:
+            h = 0
+        return f"{h:02d}:{mins}"
+
+    # 2. Standalone hour with am/pm e.g. '10am', '2pm', '10 am'
+    m2 = re.search(r"\b(\d{1,2})\s*(am|pm)\b", pref)
+    if m2:
+        h = int(m2.group(1))
+        if m2.group(2) == "pm" and h < 12:
+            h += 12
+        elif m2.group(2) == "am" and h == 12:
             h = 0
         return f"{h:02d}:00"
+
+    # 3. 4-digit colloquial/military time e.g. '1030', '0915', '1430'
+    m3 = re.search(r"\b([01]?\d|2[0-3])([0-5]\d)\b", pref)
+    if m3:
+        return f"{int(m3.group(1)):02d}:{m3.group(2)}"
 
     # 4. Standalone hour e.g. 'at 10', '10'
     m4 = re.search(r"\b(?:at\s+)?(\d{1,2})\b", pref)

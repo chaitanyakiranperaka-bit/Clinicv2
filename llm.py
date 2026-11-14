@@ -122,7 +122,23 @@ def resolve_agreed_slot_time(tool_input: dict, messages: list, target_date: str 
             if not is_today or parsed >= cutoff_str:
                 return parsed
 
-    # 2. Check the most recent check_calendar_slots tool result
+    # 2. Check the most recent user utterance FIRST (caller may have picked a specific slot like "11.45 am" or "2.15 pm")
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            content = m.get("content", [])
+            for block in content:
+                txt = ""
+                if isinstance(block, dict) and "text" in block:
+                    txt = block["text"]
+                elif isinstance(block, str):
+                    txt = block
+                if txt:
+                    parsed = calendar_service.parse_time_preference(txt)
+                    if parsed and (not is_today or parsed >= cutoff_str):
+                        return parsed
+            break
+
+    # 3. Check the most recent check_calendar_slots tool result
     last_check = find_last_calendar_check(messages)
     if last_check:
         suggested = last_check.get("suggested_slots_to_quote", [])
@@ -134,7 +150,7 @@ def resolve_agreed_slot_time(tool_input: dict, messages: list, target_date: str 
             if not is_today or s >= cutoff_str:
                 return s
 
-    # 3. Search backwards in conversation history for the quoted time
+    # 4. Search backwards in all conversation history
     for m in reversed(messages):
         content = m.get("content", [])
         for block in content:
