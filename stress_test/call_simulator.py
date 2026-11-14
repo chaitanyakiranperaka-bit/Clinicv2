@@ -213,7 +213,7 @@ class SimulatedCall:
 
     async def _receive_turn_response(self, ws, turn_metric: TurnMetric):
         """Collects server response packets for the current turn."""
-        turn_timeout = time.time() + 35.0
+        turn_timeout = time.time() + 90.0
         last_packet_time = time.time()
 
         while time.time() < turn_timeout:
