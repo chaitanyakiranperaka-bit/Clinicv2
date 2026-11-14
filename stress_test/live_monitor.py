@@ -71,6 +71,8 @@ class LiveMonitor:
         self.gpu_util_samples: List[float] = []
         self.vram_samples: List[float] = []
         self.gpu_temp_samples: List[float] = []
+        self._prev_idle = None
+        self._prev_total = None
 
         # NVIDIA GPU metadata
         self.has_nvidia = bool(shutil.which("nvidia-smi"))
@@ -154,10 +156,11 @@ class LiveMonitor:
             except Exception:
                 pass
 
-        # Fallback for Linux procfs
+        # Fallback for Linux procfs (zero external dependency)
         try:
-            mem_total = 16.0
-            mem_free = 12.0
+            used_gb = 4.0
+            total_gb = 16.0
+            ram_pct = 25.0
             if os.path.exists("/proc/meminfo"):
                 with open("/proc/meminfo") as f:
                     lines = f.readlines()
@@ -171,7 +174,25 @@ class LiveMonitor:
                 total_gb = total_kb / (1024 * 1024)
                 used_gb = (total_kb - avail_kb) / (1024 * 1024)
                 ram_pct = (used_gb / total_gb) * 100.0
-                return 15.0, used_gb, total_gb, ram_pct
+
+            cpu = 0.0
+            if os.path.exists("/proc/stat"):
+                with open("/proc/stat") as f:
+                    for line in f:
+                        if line.startswith("cpu "):
+                            parts = [float(x) for x in line.split()[1:]]
+                            idle = parts[3] + (parts[4] if len(parts) > 4 else 0.0)
+                            total = sum(parts)
+                            if self._prev_idle is not None and self._prev_total is not None:
+                                d_idle = idle - self._prev_idle
+                                d_total = total - self._prev_total
+                                if d_total > 0:
+                                    cpu = round(max(0.0, min(100.0, (1.0 - (d_idle / d_total)) * 100.0)), 1)
+                            self._prev_idle = idle
+                            self._prev_total = total
+                            break
+
+            return cpu, used_gb, total_gb, ram_pct
         except Exception:
             pass
 

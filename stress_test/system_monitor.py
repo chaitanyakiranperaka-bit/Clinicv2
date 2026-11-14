@@ -3,7 +3,7 @@ import time
 import shutil
 import asyncio
 import subprocess
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 try:
     import psutil
@@ -25,8 +25,23 @@ class SystemMonitor:
         self.gpu_mem_samples: List[float] = []
         self.gpu_temp_samples: List[float] = []
 
+        # Zero-dependency Linux /proc state tracking
+        self._prev_idle: Optional[float] = None
+        self._prev_total: Optional[float] = None
+        self._linux_total_ram_gb: Optional[float] = None
+
     async def start(self):
         self.is_running = True
+        # Seed CPU metrics before sampling loop begins
+        if psutil:
+            try:
+                psutil.cpu_percent(interval=None)
+            except Exception:
+                pass
+        else:
+            self._prev_idle, self._prev_total = self._read_proc_stat()
+            self._read_proc_mem()
+
         self._task = asyncio.create_task(self._sample_loop())
 
     async def stop(self):
@@ -64,15 +79,65 @@ class SystemMonitor:
             except Exception:
                 await asyncio.sleep(self.interval)
 
-    def _get_cpu_ram(self):
+    def _read_proc_stat(self) -> Tuple[Optional[float], Optional[float]]:
+        """Reads CPU times from Linux /proc/stat."""
         try:
-            if psutil:
+            if os.path.exists("/proc/stat"):
+                with open("/proc/stat", "r") as f:
+                    for line in f:
+                        if line.startswith("cpu "):
+                            parts = [float(x) for x in line.split()[1:]]
+                            idle = parts[3] + (parts[4] if len(parts) > 4 else 0.0)
+                            total = sum(parts)
+                            return idle, total
+        except Exception:
+            pass
+        return None, None
+
+    def _read_proc_mem(self) -> Optional[float]:
+        """Reads RAM usage percent from Linux /proc/meminfo."""
+        try:
+            if os.path.exists("/proc/meminfo"):
+                total_kb = None
+                avail_kb = None
+                with open("/proc/meminfo", "r") as f:
+                    for line in f:
+                        if line.startswith("MemTotal:"):
+                            total_kb = float(line.split()[1])
+                        elif line.startswith("MemAvailable:"):
+                            avail_kb = float(line.split()[1])
+                if total_kb and avail_kb:
+                    used_pct = round(((total_kb - avail_kb) / total_kb) * 100.0, 1)
+                    self._linux_total_ram_gb = round(total_kb / (1024 * 1024), 1)
+                    return used_pct
+        except Exception:
+            pass
+        return None
+
+    def _get_cpu_ram(self) -> Tuple[Optional[float], Optional[float]]:
+        # 1. Primary: Use psutil if installed
+        if psutil:
+            try:
                 cpu = psutil.cpu_percent(interval=None)
                 ram = psutil.virtual_memory().percent
                 return cpu, ram
-            return None, None
-        except Exception:
-            return None, None
+            except Exception:
+                pass
+
+        # 2. Native Linux /proc fallback (Zero-dependency for Ubuntu EC2)
+        idle, total = self._read_proc_stat()
+        cpu_pct = None
+        if idle is not None and total is not None:
+            if self._prev_idle is not None and self._prev_total is not None:
+                d_idle = idle - self._prev_idle
+                d_total = total - self._prev_total
+                if d_total > 0:
+                    cpu_pct = round(max(0.0, min(100.0, (1.0 - (d_idle / d_total)) * 100.0)), 1)
+            self._prev_idle = idle
+            self._prev_total = total
+
+        ram_pct = self._read_proc_mem()
+        return cpu_pct, ram_pct
 
     def _get_gpu_stats(self):
         """Queries nvidia-smi for utilization.gpu, memory.used, and temperature.gpu."""
@@ -112,8 +177,17 @@ class SystemMonitor:
 
     def print_summary(self):
         s = self.get_summary()
-        vcpus = psutil.cpu_count(logical=True) if psutil else 4
-        ram_gb = round(psutil.virtual_memory().total / (1024**3)) if psutil else 16
+        vcpus = (psutil.cpu_count(logical=True) if psutil else None) or os.cpu_count() or 4
+        if psutil:
+            try:
+                ram_gb = round(psutil.virtual_memory().total / (1024**3))
+            except Exception:
+                ram_gb = round(self._linux_total_ram_gb) if self._linux_total_ram_gb else 16
+        elif self._linux_total_ram_gb:
+            ram_gb = round(self._linux_total_ram_gb)
+        else:
+            ram_gb = 16
+
         print("-" * 78)
         print(" HARDWARE UTILIZATION PROFILE (AWS EC2):")
         print(f"   • CPU Usage:     Avg {s['cpu']['avg']}%  |  Peak {s['cpu']['max']}% ({vcpus} vCPUs)")
@@ -125,4 +199,3 @@ class SystemMonitor:
         else:
             print("   • NVIDIA GPU:    No nvidia-smi detected (Running on CPU/Local host)")
         print("-" * 78)
-

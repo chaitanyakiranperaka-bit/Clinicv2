@@ -112,3 +112,11 @@ The test suite captures and analyzes:
 
 All results are printed in a formatted report in the terminal and saved as a JSON report in `stress_test/results/`.
 
+---
+
+## 6. Official Benchmark Report
+
+For comprehensive benchmark numbers from verified runs on AWS EC2 (including the **302-call, 50-concurrency soak test** and **100% booking success rate**), refer to:
+- 📄 [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md)
+
+
