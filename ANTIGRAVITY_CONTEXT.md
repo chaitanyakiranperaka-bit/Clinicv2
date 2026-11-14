@@ -1,65 +1,17 @@
-### Part 1: Export Code from EC2 to Git
-
-Run these commands inside your EC2 terminal to initialize Git, ignore sensitive credentials, and push to your repository:
-
-```bash
-cd ~/clinic_ai
-
-# 1. Initialize git repository
-git init
-
-# 2. Prevent sensitive credentials, virtual environments, and weights from being pushed
-cat << 'EOF' > .gitignore
-voice-env/
-venv/
-__pycache__/
-*.pyc
-service_account.json
-*.pem
-.env
-.cache/
-kokoro-v1_0.pth
-*.wav
-EOF
-
-# 3. Add all modular files
-git add .
-git commit -m "feat: complete modular voice receptionist with Bedrock Qwen and Google Calendar"
-
-# 4. Set your main branch and connect to your remote repo (GitHub/GitLab)
-git branch -M main
-# Replace with your actual git remote URL:
-git remote add origin git@github.com:<YOUR_USERNAME>/<YOUR_REPO>.git
-git push -u origin main
-
-```
-
-*(If using HTTPS with a Personal Access Token or SSH keys, ensure your GitHub/GitLab credentials are added to EC2 or push using `gh auth login`.)*
-
----
-
-### Part 2: Markdown Context File for Antigravity
-
-Save the file below in the root of your project as `ANTIGRAVITY_CONTEXT.md`. When opening the project in Antigravity, point the AI to this file to provide full context on what is working, the design decisions, and where to pick up development.
-
-```markdown
-# Star Dental & GP Clinic — Voice AI Receptionist
+# Star Dental & GP Clinic — Autonomous Voice AI Receptionist
 
 ## 1. Executive Summary & Project Identity
 * **Project Name**: Star Clinic Autonomous Voice Receptionist ("Deirdre")
-* **Location/Practice**: Star Dental & GP Clinic, Clonsilla, Dublin 15, Ireland[cite: 1, 2]
-* **Timezone**: `Europe/Dublin` (Irish Standard Time / GMT with daylight saving)[cite: 1, 2]
-* **Jurisdiction & Compliance**: GDPR (Irish Data Protection Commission) & EU AI Act compliant[cite: 1]
-  * **Transparency**: Automated AI identity disclosure on every call pickup[cite: 1, 2]
-  * **Data Minimization**: Zero clinical symptoms stored in calendar payloads; only administrative categories (`Routine GP`, `Dental`, `Nurse Appointment`), Name, DOB, and Phone[cite: 1, 2]
-  * **Data Residency**: All infrastructure and LLM inference strictly pinned to AWS Ireland (`eu-west-1`)[cite: 2]
+* **Location/Practice**: Star Dental & GP Clinic, Clonsilla, Dublin 15, Ireland
+* **Timezone**: `Europe/Dublin` (Irish Standard Time / GMT with daylight saving)
+* **Jurisdiction & Compliance**: GDPR (Irish Data Protection Commission) & EU AI Act compliant
+  * **Transparency**: Automated AI identity disclosure on every call pickup
+  * **Data Minimization**: Zero clinical symptoms stored in calendar payloads; only administrative categories (`Routine GP`, `Dental`, `Nurse Appointment`), Name, DOB, and Phone
+  * **Data Residency**: All infrastructure and LLM inference strictly pinned to AWS Ireland (`eu-west-1`)
 
 ---
 
 ## 2. Infrastructure & Technical Architecture
-
-
-```
 
 ```
               ┌──────────────────────────────────────────────────┐
@@ -68,42 +20,37 @@ Save the file below in the root of your project as `ANTIGRAVITY_CONTEXT.md`. Whe
               └─────────────────────────┬────────────────────────┘
                                         │ WebSocket (/ws/call)
                                         ▼
-
-```
-
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
-│ EC2 Instance: c7i.2xlarge (8 vCPU, 16GB RAM) | Dublin (eu-west-1)                     │
+│ EC2 Instance: g5.xlarge (4 vCPUs, 16GB RAM, NVIDIA A10G 24GB) | Dublin (eu-west-1)    │
 │                                                                                        │
 │  ┌───────────────────────┐   ┌──────────────────────┐   ┌───────────────────────────┐  │
-│  │   Silero VAD (CPU)    ├──►│ Faster-Whisper (CPU) ├──►│ Bedrock Converse Client   │  │
-│  │ (32ms / 512-smpl FIFO)│   │  (small.en int8 8thr)│   │  (llm.py / Qwen 3 Coder)  │  │
+│  │   Silero VAD (CPU)    ├──►│ Faster-Whisper (CUDA)├──►│ Bedrock Converse Client   │  │
+│  │ (32ms / 512-smpl FIFO)│   │ (distil-large-v3)    │   │  (llm.py / Qwen 3 Coder)  │  │
 │  └───────────────────────┘   └──────────────────────┘   └─────────────┬─────────────┘  │
 │                                                                       │                │
 │  ┌───────────────────────┐                                            │ AWS PrivateLink│
-│  │   Kokoro-82M (CPU)    │◄───────────────────────────────────────────┤ (Port 443 VPC) │
-│  │ (bf_isabella Hiberno) │                                            ▼                │
+│  │   Kokoro-82M (CUDA)   │◄───────────────────────────────────────────┤ (Port 443 VPC) │
+│  │ (af_heart Hiberno)    │                                            ▼                │
 │  └───────────────────────┘                         ┌─────────────────────────────────┐ │
 │                                                    │ AWS Bedrock (eu-west-1)         │ │
 │                                                    │ qwen.qwen3-coder-30b-a3b-v1:0   │ │
 │                                                    └─────────────────────────────────┘ │
 └───────────────────────────────────────────┬────────────────────────────────────────────┘
-│ Google Calendar API v3
-▼
-┌───────────────────────────────┐
-│ Google Calendar Service Acct  │
-│ (09:00 - 17:00 • 15-min slots)│
-└───────────────────────────────┘
-
+                                            │ Google Calendar API v3
+                                            ▼
+                             ┌───────────────────────────────┐
+                             │ Google Calendar Service Acct  │
+                             │ (09:00 - 17:00 • 15-min slots)│
+                             └───────────────────────────────┘
 ```
 
 ### Component Stack
-1. **Host**: AWS EC2 `c7i.2xlarge` in `eu-west-1` running Ubuntu 24.04 LTS.
-2. **LLM Engine**: Amazon Bedrock via Converse API using `qwen.qwen3-coder-30b-a3b-v1:0`[cite: 1, 2].
-   * *Architecture Note*: Evaluated `google.gemma-3-12b-it`, but migrated to `qwen.qwen3-coder-30b-a3b-v1:0` because Qwen provides native Bedrock `toolUse` execution without generating markdown backticks in text output.
-   * *Network Route*: Private communication over AWS PrivateLink interface VPC Endpoint (`172.31.x.x:443`).
-3. **STT (Speech-to-Text)**: `faster-whisper` (`small.en` model, CPU int8 quantization, 8 threads, ~890ms latency).
-4. **TTS (Text-to-Speech)**: `Kokoro-82M` (voice: `bf_isabella` British/Hiberno accent, CPU execution RTF ~0.20x).
-5. **VAD (Voice Activity Detection)**: `silero-vad` on CPU with a 512-sample (32ms) sliding FIFO buffer.
+1. **Host**: AWS EC2 `g5.xlarge` in `eu-west-1` running Ubuntu 22.04 LTS (NVIDIA A10G 24GB).
+2. **LLM Engine**: Amazon Bedrock via Converse API using `qwen.qwen3-coder-30b-a3b-v1:0`.
+   - Private communication over AWS PrivateLink interface VPC Endpoint (`172.31.16.231:443`).
+3. **STT (Speech-to-Text)**: `faster-whisper` (`distil-large-v3` / `large-v3`).
+4. **TTS (Text-to-Speech)**: `Kokoro-82M` (voice: `af_heart` tuned Irish/Hiberno cadence).
+5. **VAD (Voice Activity Detection)**: `silero-vad` with dual-threshold hysteresis and barge-in grace periods.
 6. **Calendar Integration**: Google Calendar API v3 authenticated via Service Account (`service_account.json`). Target Calendar ID: `chaitanyakiran.peraka@gmail.com`.
 
 ---
@@ -111,144 +58,74 @@ Save the file below in the root of your project as `ANTIGRAVITY_CONTEXT.md`. Whe
 ## 3. Repository Directory Structure
 
 ```text
-clinic_ai/
-├── config.py           # Core settings, Clinicians, Bedrock Tool Spec, System Prompts
-├── calendar_service.py # Google Calendar API v3 wrapper + Local Staging Queue
-├── stt.py              # Faster-Whisper CPU int8 transcription engine
-├── tts.py              # Kokoro-82M pipeline + filler audio generation
-├── llm.py              # Bedrock Converse client & tool execution dispatcher
-├── server.py           # FastAPI WebSocket orchestrator & VAD loop
+Clinicv2/
+├── config.py                 # Core settings, Clinicians, Bedrock Tool Spec, System Prompts
+├── calendar_service.py       # Google Calendar API v3 wrapper + Self-Healing Collision Recovery
+├── stt.py                    # Faster-Whisper transcription engine
+├── tts.py                    # Kokoro-82M pipeline + filler audio generation
+├── llm.py                    # Bedrock Converse client & tool execution dispatcher
+├── server.py                 # FastAPI WebSocket orchestrator & VAD loop
 ├── static/
-│   └── index.html      # Browser Softphone simulator & real-time telemetry dashboard
-├── service_account.json# (Ignored in git) Google Cloud Service Account credentials
+│   ├── index.html            # Browser Softphone simulator & real-time telemetry dashboard
+│   └── audio-processor.js    # AudioWorkletProcessor 16kHz PCM downsampler
+├── stress_test/
+│   ├── run_stress_test.py    # CLI stress test runner
+│   ├── load_runner.py        # Asynchronous multi-caller load engine
+│   ├── call_simulator.py     # Autonomous goal-driven conversational simulator
+│   ├── system_monitor.py     # Zero-dependency Linux /proc CPU/RAM & GPU telemetry
+│   ├── metrics.py            # Latency collector (TTFA, VAD, Tool)
+│   ├── stress_config.py      # Roster of 150 clinic patients & Irish conversational scripts
+│   └── BENCHMARK_REPORT.md   # Official stress benchmark report (50 & 100 concurrency)
+├── CODE_REVIEW_CONTEXT.md    # Dedicated architectural context file for code review models
 └── ANTIGRAVITY_CONTEXT.md
-
 ```
 
 ---
 
 ## 4. Key Engineering Fixes Already Implemented
 
-1. **VPC Endpoint Port 443 Inbound Rule**:
-* Resolved initial TCP timeout by adding HTTPS (port 443) inbound rule to the Interface VPC Endpoint Security Group (`172.31.16.231:443`).
-
-
-2. **Audio Sample Rate Resampling**:
-* Web browsers default to 44.1kHz or 48kHz. In `static/index.html`, a linear interpolation downsampler converts microphone input to clean 16kHz Float32 PCM before transmitting over WebSocket.
-
-
-3. **Lossless VAD FIFO Buffer**:
-* In `server.py`, incoming chunks enter a continuous NumPy sliding buffer `pcm_fifo` processed in exact 512-sample (32ms) frames with zero packet loss.
-
-
-4. **VAD Recurrent State Reset**:
-* Calling `vad_model.reset_states()` after every turn ensures silence drift is cleared and subsequent user utterances trigger instantly.
-
-
-5. **Web Browser Secure Context Constraint**:
-* Modern browsers restrict `navigator.mediaDevices.getUserMedia` to HTTPS or `http://localhost`. Testing must always use `http://localhost:8998` via SSH tunneling (`-L 8998:localhost:8998`).
-
-
-6. **Date Grounding in Tool Calls**:
-* Dynamic Dublin timezone injection into the system prompt ensures the LLM generates valid upcoming dates (`2026-10-31`, etc.) rather than defaulting to training data years.
-
-
+1. **Self-Healing Slot Collision Recovery**:
+   - `book_calendar_slot` immediately queries remaining open daily slots upon collision and steers the caller to alternate open times.
+2. **Autonomous Multi-Week Schedule Traversal**:
+   - When days/weeks fill up, Deirdre autonomously traverses forward up to 5 weeks to find open slots without looping.
+3. **Lossless VAD FIFO & Grace-Period Barge-In**:
+   - `pcm_fifo` processed in exact 512-sample (32ms) frames with $400\text{ms}$ acoustic grace period to prevent echo bleed.
+4. **Fast Conversational Filler**:
+   - Sub-200ms filler audio (*"Let me check that for you..."*) eliminates dead air during Bedrock and GCal API lookups.
+5. **64-Worker ThreadPoolExecutor**:
+   - Replaced default 8-worker thread pool in FastAPI to prevent blocking during 50+ concurrent requests.
+6. **Zero-Dependency Linux `/proc` Telemetry**:
+   - Accurate, real-time CPU and RAM monitoring on Ubuntu EC2 directly from `/proc/stat` and `/proc/meminfo`.
 
 ---
 
 ## 5. Tool Specifications & Clinical Routing Rules
 
 ### Clinician Directory & Calendar Color Coding
-
 * **Dr. Yousuf** (Routine GP): Calendar `colorId: 9` (Blueberry)
-
-
 * **Dentist Shailaja** (Dental): Calendar `colorId: 7` (Peacock)
-
-
 * **Nurse Kelly** (Nurse visits / bloods / smears / vaccines): Calendar `colorId: 10` (Basil)
 
-
-
 ### Calendar Rules
-
 * Operating hours: 09:00 to 17:00, Monday through Saturday.
-
-
 * Slot length: Exact 15-minute intervals (32 slots per clinician per day).
-
-
 * Out-of-hours redirect: D-Doc / K-Doc GP cooperative services.
 
-
-
 ### Bedrock Tools (`config.py`):
-
-1. `check_calendar_slots(clinician, date, time_preference)`: Reads open slots from Google Calendar and returns 2–3 suggested times.
-2. `book_calendar_slot(clinician, date, slot_time, patient_name, patient_dob, appointment_category)`: Creates the 15-minute appointment on Google Calendar and logs confirmation.
-3. `trigger_emergency_divert(emergency_category)`: Diverts red-flag symptoms (chest pain, acute breathlessness, FAST stroke signs, severe hemorrhage) to emergency services (`999` / `112`) and flashes an alert banner on the clinic dashboard.
-
-
+1. `check_calendar_slots(clinician, date, time_preference)`: Reads open slots from Google Calendar and returns suggested times.
+2. `book_calendar_slot(clinician, date, slot_time, patient_name, patient_dob, appointment_category)`: Creates confirmed Google Calendar events with collision recovery.
+3. `trigger_emergency_divert(emergency_category)`: Diverts red-flag symptoms to emergency services (`999` / `112`).
 
 ---
 
-## 6. Environment Variables & Runtime Commands
+## 6. Official Benchmarks (AWS EC2 `g5.xlarge`)
 
-### Required Variables
-
-```bash
-export AWS_DEFAULT_REGION="eu-west-1"
-export AWS_REGION="eu-west-1"
-export BEDROCK_MODEL_ID="qwen.qwen3-coder-30b-a3b-v1:0"
-export GOOGLE_CALENDAR_ID="chaitanyakiran.peraka@gmail.com"
-export GOOGLE_SERVICE_ACCOUNT_FILE="/home/ubuntu/service_account.json"
-
-```
-
-### Starting the Server
-
-```bash
-cd ~/clinic_ai
-source ~/voice-env/bin/activate
-python -m uvicorn server:app --host 0.0.0.0 --port 8998
-
-```
-
-### SSH Port-Forward Tunnel (from Client Laptop)
-
-```bash
-ssh -i "<path-to-key>.pem" -L 8998:localhost:8998 ubuntu@<EC2-PUBLIC-IP>
-# Open http://localhost:8998 in browser
-
-```
-
----
-
-## 7. Antigravity Next Steps & Roadmap
-
-### Completed:
-* [x] **Replace `ScriptProcessorNode` with `AudioWorklet`**:
-  * Implemented dedicated `AudioWorkletProcessor` (`static/audio-processor.js`) running off the main UI thread with 16kHz resampling and transferable ArrayBuffer streaming. Includes graceful fallback to `ScriptProcessorNode` for legacy browsers.
-* [x] **Conversational Bug Fixes & Resiliency**:
-  * Added same-day past-slot filtering with 15-minute lead-time buffer.
-  * Added Sunday clinic closure guard with automated next-Monday referral.
-  * Implemented abbreviation-safe sentence tokenizer protecting titles (`Dr. Yousuf`) and preserving `?` and `!` punctuation for Kokoro TTS inflection.
-  * Migrated filler audio from unconditional per-turn playback to targeted tool execution latency masking.
-  * Added GCal client caching to eliminate 200–500ms discovery overhead on every turn.
-  * Added per-connection VAD state isolation and barge-in turn cancellation.
-
-### Remaining Roadmap:
-1. **Persistent Database Layer**:
-* Migrate the in-memory `KNOWN_PATIENTS` dictionary and `LOCAL_BOOKINGS` staging list to SQLite / PostgreSQL with SQLAlchemy.
-
-2. **Telephony Ingestion (Twilio / FreeSWITCH / Asterisk SIP)**:
-* Bridge the WebSocket handler (`/ws/call`) to accept bidirectional G.711 / μ-law 8kHz audio streams from Twilio Media Streams or an Asterisk/FreeSWITCH SIP PBX trunk.
-
-3. **Irish Practice Management System (PMS) Export**:
-* Implement automated Healthlink / Socrates / Helix PMS export adapters for completed provisional bookings.
-
-
-
-```
-
-```
+* **50 Concurrent Callers (Soak Test, 302 Calls over 11.7 mins)**:
+  - **100.0% Success Rate (302/302 calls)**, 0 failures, 0 timeouts.
+  - **133 Confirmed Google Calendar Bookings**.
+  - **Median TTFA**: **794 ms**, $p95 = 1.79\text{ s}$.
+  - **VRAM Stability**: Flat at $3.15\text{ GB} - 3.21\text{ GB}$ (zero tensor leak).
+* **100 Concurrent Callers (Ramp-Up Test)**:
+  - **100.0% Success Rate (100/100 calls)**, throughput: **31.6 calls/min**.
+  - **CPU Utilization**: Avg 67.6% | Peak 89.5% (4 vCPUs).
+  - **VRAM**: Flat at 3.84 GB – 3.89 GB (15.8% of 24.5 GB).

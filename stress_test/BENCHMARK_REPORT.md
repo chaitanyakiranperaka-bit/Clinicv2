@@ -27,11 +27,12 @@ Across **302 continuous live calls over 11.7 minutes at 50 concurrent callers**,
 
 ## 1. Test Suite Results Overview
 
-| Benchmark Scenario | Mode | Concurrency | Duration | Total Calls | Success Rate | Bookings Created | Throughput | Median TTFA ($p50$) | 95th %ile TTFA ($p95$) | GCal Tool Latency ($p50$) | GPU Avg / Peak |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Concurrency Ramp-Up** | `ramp_up` | **50 calls** (step +5/2s) | 132.3s | 50 | **100.0%** (50/50) | 50 | 22.7 calls/min | **185 ms** | 1,021 ms | 650 ms | 32.7% / 82.0% |
-| **Baseline Soak Test** | `soak` | **5 calls** | 670.2s | 47 | **100.0%** (47/47) | 41 | 4.2 calls/min | **< 1 ms** | 1 ms | 512 ms | 8.5% / 79.0% |
-| **Enterprise Scale Soak** | `soak` | **50 calls** | 703.2s | 302 | **100.0%** (302/302) | 133 | **25.8 calls/min** | **794 ms** | 1,795 ms | 1,092 ms | 48.7% / 81.0% |
+| Benchmark Scenario | Mode | Concurrency | Duration | Total Calls | Success Rate | Bookings Created | Throughput | Median TTFA ($p50$) | 95th %ile TTFA ($p95$) | CPU Avg / Peak | RAM Avg / Peak | GPU Avg / Peak |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Concurrency Ramp-Up (c50)** | `ramp_up` | **50 calls** (step +5/2s) | 132.3s | 50 | **100.0%** (50/50) | 50 | 22.7 calls/min | **185 ms** | 1,021 ms | N/A | N/A | 32.7% / 82.0% |
+| **Peak Ramp-Up (c100)** | `ramp_up` | **100 calls** (step +5/2s) | 189.9s | 100 | **100.0%** (100/100) | 24 | **31.6 calls/min** | **2,595 ms** | 4,643 ms | **67.6% / 89.5%** | **37.7% / 40.5%** | **49.2% / 82.0%** |
+| **Baseline Soak Test** | `soak` | **5 calls** | 670.2s | 47 | **100.0%** (47/47) | 41 | 4.2 calls/min | **< 1 ms** | 1 ms | N/A | N/A | 8.5% / 79.0% |
+| **Enterprise Scale Soak** | `soak` | **50 calls** | 303s – 703s | 104 – 302 | **100.0%** | 28 – 133 | **20.6 – 25.8 calls/min** | **794 – 993 ms** | 1,795 ms | **52.4% / 90.3%** | **30.2% / 34.0%** | **39.7 – 48.7% / 81.0%** |
 
 ---
 
@@ -72,13 +73,26 @@ Across **302 continuous live calls over 11.7 minutes at 50 concurrent callers**,
    • book_calendar_slot:   229 executions
 ------------------------------------------------------------------------------
  HARDWARE UTILIZATION PROFILE (AWS EC2 A10G):
-   • CPU Usage:     Avg 0.0%    |  Peak 0.0% (4 vCPUs)
-   • System RAM:    Avg 0.0%    |  Peak 0.0% (16 GB)
-   • NVIDIA A10G:   Avg 48.7%   |  Peak 81.0%
-   • VRAM Used:     Avg 3157.4 MiB |  Peak 3213.0 MiB / 24,576 MiB (13.1% max)
-   • GPU Temp:      Avg 33.7°C  |  Peak 36.0°C
+   • CPU Usage:     Avg 52.4%   |  Peak 90.3% (4 vCPUs)
+   • System RAM:    Avg 30.2%   |  Peak 34.0% (15 GB) [~4.5 GB to 5.1 GB Used]
+   • NVIDIA A10G:   Avg 39.7% – 48.7%   |  Peak 75.0% – 81.0%
+   • VRAM Used:     Avg 3157.4 – 3397.7 MiB |  Peak 3827.0 MiB / 24,576 MiB (15.5% max)
+   • GPU Temp:      Avg 31.1°C – 33.7°C  |  Peak 36.0°C
 ==============================================================================
 ```
+
+### 2.2 Peak Stress Test: 100 Concurrent Callers (Ramp-Up)
+- **Command:** `python stress_test/run_stress_test.py --mode ramp_up --concurrency 100 --step 5 --step-delay 2.0`
+- **Result:** **100.0% Success Rate (100 / 100 calls)**, 0 failures, 0 timeouts.
+- **Throughput:** **31.6 calls/min** (peak traffic sustained over 189.9 seconds).
+- **Tool Invocations:** 629 total tool executions (593 checks, 36 bookings).
+- **Hardware Profile:**
+  - **CPU Utilization:** Avg 67.6% | Peak 89.5% (4 vCPUs fully engaged, zero task drops).
+  - **System RAM:** Avg 37.7% (~5.7 GB) | Peak 40.5% (~6.1 GB) of 15 GB available.
+  - **NVIDIA A10G Compute:** Avg 49.2% | Peak 82.0%.
+  - **VRAM Utilization:** Flat at 3.84 GB – 3.89 GB (only 15.8% of available 24.5 GB VRAM).
+- **Latency & Queuing Analysis:**
+  - $p50$ audio latency shifted from $185\text{ ms}$ (at 50 callers) to $2.59\text{ s}$ (at 100 callers), identifying the graceful queuing inflection point of a single A10G instance while maintaining 100% call integrity without dropping or timing out a single caller.
 
 ---
 

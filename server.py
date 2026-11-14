@@ -150,6 +150,7 @@ async def call_websocket(websocket: WebSocket):
     is_bot_speaking = False
     is_processing_turn = False
     current_turn_task = None
+    turn_lock = asyncio.Lock()
     unspoken_sentences = []
     current_speaking_sentence = None
     bot_speech_start_time = 0.0
@@ -207,12 +208,12 @@ async def call_websocket(websocket: WebSocket):
             if b64_wav and is_bot_speaking:
                 await send_json({"type": "audio", "b64": b64_wav})
 
-    # Greeting
+    # Greeting (with EU AI Act Art. 50 transparency disclosure)
     matched = get_known_patient(caller_phone)
     greeting = (
-        f"Hello, welcome to Star Dental and GP Clinic in Clonsilla. You are speaking with Deirdre. Am I speaking with {matched['name']}?"
+        f"Hello, welcome to Star Dental and GP Clinic in Clonsilla. You are speaking with Deirdre, the clinic's automated AI receptionist. Am I speaking with {matched['name']}?"
         if matched else
-        "Hello, welcome to Star Dental and GP Clinic in Clonsilla. You are speaking with Deirdre. How can I help you today?"
+        "Hello, welcome to Star Dental and GP Clinic in Clonsilla. You are speaking with Deirdre, the clinic's automated AI receptionist. How can I help you today?"
     )
     messages.append({"role": "user", "content": [{"text": "Hello, I am calling the clinic."}]})
     messages.append({"role": "assistant", "content": [{"text": greeting}]})
@@ -283,59 +284,66 @@ async def call_websocket(websocket: WebSocket):
         unspoken_sentences = []
         current_speaking_sentence = None
 
-        # Cancel any previous task ONLY if it is a DIFFERENT task than this one
+        # Cancel any previous in-flight turn task and await its cleanup before mutating shared state
         my_task = asyncio.current_task()
         if current_turn_task and current_turn_task is not my_task and not current_turn_task.done():
             current_turn_task.cancel()
+            try:
+                await current_turn_task
+            except (asyncio.CancelledError, Exception):
+                pass
         current_turn_task = my_task
 
-        messages.append({"role": "user", "content": [{"text": user_text}]})
-        is_processing_turn = True
-        filler_sent_this_turn = False
+        async with turn_lock:
+            messages.append({"role": "user", "content": [{"text": user_text}]})
+            is_processing_turn = True
+            filler_sent_this_turn = False
 
-        # Fast Conversational Filler:
-        # Immediately acknowledge scheduling queries within ~200ms so TTFA stays sub-second and eliminates dead air
-        lower_user = user_text.lower()
-        scheduling_keywords = (
-            "book", "appointment", "slot", "available", "see ", "dr.", "doctor",
-            "nurse", "dentist", "check", "monday", "tuesday", "wednesday",
-            "thursday", "friday", "morning", "afternoon", "tomorrow", "today", "confirm"
-        )
-        if any(w in lower_user for w in scheduling_keywords):
-            filler_b64, filler_text = tts.get_check_filler()
-            if filler_b64:
-                filler_sent_this_turn = True
-                await send_json({"type": "transcript", "role": "Deirdre", "text": filler_text})
-                await send_json({"type": "audio", "b64": filler_b64})
-
-        try:
-            reply_text = await llm.execute_turn(
-                messages,
-                system_prompt,
-                caller_phone,
-                on_tool_log=lambda msg: send_json({"type": "tool_log", "text": msg}),
-                on_booking=lambda b: send_json({"type": "booking_created", "booking": b}),
-                on_emergency=lambda cat: send_json({"type": "emergency_alert", "text": cat}),
-                on_tool_start=handle_tool_start,
-                on_tool_result=handle_tool_result
+            # Fast Conversational Filler:
+            # Immediately acknowledge scheduling queries within ~200ms so TTFA stays sub-second and eliminates dead air
+            lower_user = user_text.lower()
+            scheduling_keywords = (
+                "book", "appointment", "slot", "available", "see ", "dr.", "doctor",
+                "nurse", "dentist", "check", "monday", "tuesday", "wednesday",
+                "thursday", "friday", "morning", "afternoon", "tomorrow", "today", "confirm"
             )
+            if any(w in lower_user for w in scheduling_keywords):
+                filler_b64, filler_text = tts.get_check_filler()
+                if filler_b64:
+                    filler_sent_this_turn = True
+                    await send_json({"type": "transcript", "role": "Deirdre", "text": filler_text})
+                    await send_json({"type": "audio", "b64": filler_b64})
 
-            if reply_text and not my_task.cancelled():
-                await speak_text(reply_text)
+            try:
+                reply_text = await llm.execute_turn(
+                    messages,
+                    system_prompt,
+                    caller_phone,
+                    on_tool_log=lambda msg: send_json({"type": "tool_log", "text": msg}),
+                    on_booking=lambda b: send_json({"type": "booking_created", "booking": b}),
+                    on_emergency=lambda cat: send_json({"type": "emergency_alert", "text": cat}),
+                    on_tool_start=handle_tool_start,
+                    on_tool_result=handle_tool_result
+                )
 
-        except asyncio.CancelledError:
-            print("[Turn Cancelled]: New caller utterance initiated.", flush=True)
-        except Exception as e:
-            print(f"[Turn Processing Error]: {e}", flush=True)
-        finally:
-            if current_turn_task is my_task:
-                current_turn_task = None
-            is_processing_turn = False
-            vad_model.reset_states()
+                if reply_text and not my_task.cancelled():
+                    await speak_text(reply_text)
+
+            except asyncio.CancelledError:
+                print("[Turn Cancelled]: New caller utterance initiated.", flush=True)
+            except Exception as e:
+                print(f"[Turn Processing Error]: {e}", flush=True)
+            finally:
+                if current_turn_task is my_task:
+                    current_turn_task = None
+                    is_processing_turn = False
+                vad_model.reset_states()
 
     try:
         while True:
             packet = await websocket.receive()
+            if packet.get("type") == "websocket.disconnect":
+                break
             if "text" in packet:
                 data = json.loads(packet["text"])
                 if data.get("action") == "hangup":
@@ -428,10 +436,11 @@ async def call_websocket(websocket: WebSocket):
                                     full_turn = full_turn[:-trim_frames * 512]
 
                                 speech_buffer = []
-                                current_turn_task = asyncio.create_task(process_user_turn(full_turn))
+                                asyncio.create_task(process_user_turn(full_turn))
 
     except (WebSocketDisconnect, WebSocketDisconnected):
         print("[WS DISCONNECTED] Caller hung up.", flush=True)
     finally:
+        is_bot_speaking = False
         if current_turn_task and not current_turn_task.done():
             current_turn_task.cancel()

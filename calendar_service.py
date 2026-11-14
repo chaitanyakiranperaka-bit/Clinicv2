@@ -153,13 +153,17 @@ def parse_time_preference(pref: str):
             h = 0
         return f"{h:02d}:00"
 
-    # 3. 4-digit colloquial/military time e.g. '1030', '0915', '1430'
-    m3 = re.search(r"\b([01]?\d|2[0-3])([0-5]\d)\b", pref)
+    # 3. 4-digit colloquial/military time e.g. '1030', '0915', '1430' (exclude years like 1982, 2015, 2026)
+    m3 = re.search(r"(?<![/\-\d])\b(0[89]|1[0-7])(00|15|30|45)\b(?![/\-\d])", pref)
     if m3:
         return f"{int(m3.group(1)):02d}:{m3.group(2)}"
 
-    # 4. Standalone hour e.g. 'at 10', '10'
-    m4 = re.search(r"\b(?:at\s+)?(\d{1,2})\b", pref)
+    # 4. Standalone hour: bare number like '10' or explicitly 'at 10' (exclude dates like '12/05/1983' or '16th')
+    if re.fullmatch(r"\d{1,2}", pref):
+        h = int(pref)
+        if 8 <= h <= 18:
+            return f"{h:02d}:00"
+    m4 = re.search(r"\bat\s+(\d{1,2})(?!\s*(?:st|nd|rd|th|/|-))\b", pref)
     if m4:
         h = int(m4.group(1))
         if 8 <= h <= 18:
@@ -464,6 +468,7 @@ def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_na
             suggested_spoken = ", ".join(format_spoken_time(s) for s in suggested)
             return {
                 "success": False,
+                "date": date_str,
                 "error": f"{slot_time} with {clinician} on {date_str} is already booked.",
                 "suggested_slots_to_quote": suggested,
                 "all_open_slots": all_open,
@@ -472,6 +477,7 @@ def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_na
         else:
             return {
                 "success": False,
+                "date": date_str,
                 "error": f"{slot_time} with {clinician} on {date_str} is already booked, and no remaining slots exist on that date.",
                 "suggested_slots_to_quote": [],
                 "all_open_slots": [],
