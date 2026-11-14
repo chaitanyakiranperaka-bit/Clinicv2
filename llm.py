@@ -71,17 +71,7 @@ def resolve_agreed_date(tool_input: dict, messages: list) -> str:
     now_dublin = datetime.now(DUBLIN_TZ)
     today_iso = now_dublin.strftime("%Y-%m-%d")
 
-    # 1. Check if a recent check_calendar_slots tool execution confirmed a date
-    last_check = find_last_calendar_check(messages)
-    if last_check and last_check.get("date"):
-        try:
-            check_dt = datetime.strptime(last_check["date"].strip(), "%Y-%m-%d").replace(tzinfo=DUBLIN_TZ)
-            if check_dt.date() >= now_dublin.date():
-                return last_check["date"]
-        except Exception:
-            pass
-
-    # 2. Check tool_input['date']
+    # 1. Prioritize explicit valid date provided in tool_input
     raw_date = tool_input.get("date")
     if raw_date:
         try:
@@ -89,6 +79,16 @@ def resolve_agreed_date(tool_input: dict, messages: list) -> str:
             while dt.date() < now_dublin.date():
                 dt += timedelta(days=7)
             return dt.strftime("%Y-%m-%d")
+        except Exception:
+            pass
+
+    # 2. Check if a recent check_calendar_slots tool execution confirmed a date
+    last_check = find_last_calendar_check(messages)
+    if last_check and last_check.get("date"):
+        try:
+            check_dt = datetime.strptime(last_check["date"].strip(), "%Y-%m-%d").replace(tzinfo=DUBLIN_TZ)
+            if check_dt.date() >= now_dublin.date():
+                return last_check["date"]
         except Exception:
             pass
 
@@ -140,7 +140,7 @@ def resolve_agreed_slot_time(tool_input: dict, messages: list, target_date: str 
 
     # 3. Check the most recent check_calendar_slots tool result
     last_check = find_last_calendar_check(messages)
-    if last_check:
+    if last_check and (not target_date or last_check.get("date") == target_date):
         suggested = last_check.get("suggested_slots_to_quote", [])
         for s in suggested:
             if not is_today or s >= cutoff_str:

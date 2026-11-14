@@ -62,22 +62,32 @@ class SimulatedCall:
                     await self._wait_for_greeting(ws)
                     self.metric.greeting_received = True
 
-                    # 2. Execute conversational turns from script
-                    for turn_data in self.script.get("turns", []):
-                        await self._execute_turn(ws, turn_data)
+                    # 2. Opening Turn: Caller states their primary booking request
+                    initial_turns = self.script.get("turns", [])
+                    if initial_turns:
+                        await self._execute_turn(ws, initial_turns[0])
 
-                    # 3. Alternative Slot Booking:
-                    # If after the initial turns the booking is not yet created and the receptionist offered a slot, confirm it.
-                    if not self.metric.booking_created and self.metric.turns:
-                        last_bot_reply = self.metric.turns[-1].bot_reply_text.lower()
-                        if any(k in last_bot_reply for k in ["available", "open", "prefer", "suit", "another time", "alternatively", "would you like me to book"]):
-                            alt_turn = {
-                                "turn_index": len(self.metric.turns) + 1,
-                                "turn_key": "alternative_slot_confirm",
-                                "text": "Yes, that alternative time suits me. Please go ahead and book it.",
-                                "expected_tool": "book_calendar_slot"
-                            }
-                            await self._execute_turn(ws, alt_turn)
+                    # 3. Goal-Driven Conversational Loop:
+                    # Dynamically converse until booking is created or conversation reaches natural end
+                    while not self.metric.booking_created:
+                        if not self.metric.turns:
+                            break
+
+                        last_reply = self.metric.turns[-1].bot_reply_text.lower().strip()
+
+                        # Exit if booking was already confirmed or receptionist signed off
+                        if self.metric.booking_created or "anything else" in last_reply or "booked your appointment" in last_reply:
+                            break
+
+                        # Safety guard against infinite loops (max 8 turns per call)
+                        if len(self.metric.turns) >= 8:
+                            break
+
+                        next_turn = self._determine_next_turn(last_reply)
+                        if next_turn:
+                            await self._execute_turn(ws, next_turn)
+                        else:
+                            break
 
                     # 4. Graceful Hangup
                     await ws.send(json.dumps({"action": "hangup"}))
@@ -94,6 +104,39 @@ class SimulatedCall:
             self.metric.ended_at = time.time()
 
         return self.metric
+
+    def _determine_next_turn(self, last_reply: str) -> Optional[Dict[str, Any]]:
+        """Determines the appropriate natural response based on Deirdre's last utterance."""
+        turn_idx = len(self.metric.turns) + 1
+
+        # Case 1: Deirdre says requested day is full and offers alternative days/weeks
+        if any(p in last_reply for p in ["no remaining", "fully booked", "no appointment", "check next week", "check monday", "check tuesday", "check wednesday", "check thursday", "check friday", "instead"]):
+            return {
+                "turn_index": turn_idx,
+                "turn_key": "alternative_slot_confirm",
+                "text": "Yes, that alternative day works for me. Please check that.",
+                "expected_tool": "check_calendar_slots"
+            }
+
+        # Case 2: Deirdre reports a conflict (slot was taken by another concurrent caller)
+        if any(p in last_reply for p in ["already booked", "just taken", "just booked", "is taken", "try another"]):
+            return {
+                "turn_index": turn_idx,
+                "turn_key": "alternative_slot_confirm",
+                "text": "Yes, whichever other time you have available works for me. Please book it.",
+                "expected_tool": "book_calendar_slot"
+            }
+
+        # Case 3: Deirdre quotes available time slots or asks if a time suits
+        if any(p in last_reply for p in ["available", "open", "suit you", "would you like me to book", "would one of those", "prefer", "which time"]):
+            return {
+                "turn_index": turn_idx,
+                "turn_key": "alternative_slot_confirm",
+                "text": "Yes, that alternative time you mentioned works for me. Please go ahead and book it.",
+                "expected_tool": "book_calendar_slot"
+            }
+
+        return None
 
     async def _wait_for_greeting(self, ws):
         """Awaits initial bot greeting audio and transcripts, draining all greeting sentences."""
