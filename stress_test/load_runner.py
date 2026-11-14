@@ -9,7 +9,8 @@ from stress_config import (
     TEST_SCRIPTS,
     DEFAULT_CONCURRENCY,
     DEFAULT_DURATION_SEC,
-    RAMP_UP_DELAY_SEC
+    RAMP_UP_DELAY_SEC,
+    CALL_TIMEOUT_SEC
 )
 from call_simulator import SimulatedCall
 from metrics import MetricsCollector, CallMetric
@@ -18,8 +19,9 @@ from system_monitor import SystemMonitor
 class LoadRunner:
     """Orchestrates concurrent caller simulation across various load testing scenarios."""
 
-    def __init__(self, ws_url: str = WS_URL):
+    def __init__(self, ws_url: str = WS_URL, timeout_sec: float = CALL_TIMEOUT_SEC):
         self.ws_url = ws_url
+        self.timeout_sec = timeout_sec
         self.metrics = MetricsCollector()
         self.monitor = SystemMonitor(sample_interval_sec=1.0)
         self._call_counter = 0
@@ -44,7 +46,8 @@ class LoadRunner:
             caller_phone=caller["phone"],
             patient_name=caller["name"],
             script=caller["script"],
-            ws_url=self.ws_url
+            ws_url=self.ws_url,
+            timeout_sec=self.timeout_sec
         )
         metric = await sim.run()
         self.metrics.add_call(metric)
@@ -61,7 +64,8 @@ class LoadRunner:
                 caller_phone=caller["phone"],
                 patient_name=caller["name"],
                 script=caller["script"],
-                ws_url=self.ws_url
+                ws_url=self.ws_url,
+                timeout_sec=self.timeout_sec
             )
             tasks.append(asyncio.create_task(sim.run()))
 
@@ -95,7 +99,8 @@ class LoadRunner:
                     caller_phone=caller["phone"],
                     patient_name=caller["name"],
                     script=caller["script"],
-                    ws_url=self.ws_url
+                    ws_url=self.ws_url,
+                    timeout_sec=self.timeout_sec
                 )
                 t = asyncio.create_task(sim.run())
                 active_tasks.append(t)
@@ -128,7 +133,8 @@ class LoadRunner:
                 caller_phone=caller["phone"],
                 patient_name=caller["name"],
                 script=caller["script"],
-                ws_url=self.ws_url
+                ws_url=self.ws_url,
+                timeout_sec=self.timeout_sec
             )
             return asyncio.create_task(sim.run())
 

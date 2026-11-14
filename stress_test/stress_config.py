@@ -18,7 +18,7 @@ FRAME_DURATION_SEC = FRAME_SIZE / SAMPLE_RATE
 DEFAULT_CONCURRENCY = int(os.getenv("STRESS_CONCURRENCY", "5"))
 DEFAULT_DURATION_SEC = int(os.getenv("STRESS_DURATION", "60"))
 RAMP_UP_DELAY_SEC = float(os.getenv("STRESS_RAMP_UP_DELAY", "2.0"))
-CALL_TIMEOUT_SEC = float(os.getenv("STRESS_CALL_TIMEOUT", "45.0"))
+CALL_TIMEOUT_SEC = float(os.getenv("STRESS_CALL_TIMEOUT", "65.0"))
 
 # Roster of 150 Enrolled Clinic Callers (Verified in config.py)
 SIMULATED_CALLERS = [

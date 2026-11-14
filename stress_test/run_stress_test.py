@@ -18,7 +18,7 @@ _root_dir = _cur_dir.parent
 sys.path.insert(0, str(_root_dir))
 sys.path.insert(0, str(_cur_dir))
 
-from stress_config import SERVER_HOST, SERVER_PORT, WS_URL, STATUS_URL
+from stress_config import SERVER_HOST, SERVER_PORT, WS_URL, STATUS_URL, CALL_TIMEOUT_SEC
 from load_runner import LoadRunner
 
 def check_server_health(host: str, port: int) -> bool:
@@ -62,6 +62,7 @@ async def main_async():
     parser.add_argument("--duration", type=int, default=60, help="Duration in seconds for soak test mode")
     parser.add_argument("--step", type=int, default=2, help="Concurrency increment step for ramp_up mode")
     parser.add_argument("--step-delay", type=float, default=3.0, help="Delay between steps in ramp_up mode (seconds)")
+    parser.add_argument("--timeout", type=float, default=CALL_TIMEOUT_SEC, help=f"Call timeout cutoff in seconds (default: {CALL_TIMEOUT_SEC})")
     parser.add_argument("--host", default=SERVER_HOST, help=f"Server host (default: {SERVER_HOST})")
     parser.add_argument("--port", type=int, default=SERVER_PORT, help=f"Server port (default: {SERVER_PORT})")
     parser.add_argument("--skip-preflight", action="store_true", help="Skip HTTP /status health check")
@@ -73,12 +74,13 @@ async def main_async():
             sys.exit(1)
 
     ws_url = f"ws://{args.host}:{args.port}/ws/call"
-    runner = LoadRunner(ws_url=ws_url)
+    runner = LoadRunner(ws_url=ws_url, timeout_sec=args.timeout)
 
     print("\n" + "=" * 78)
     print(f" LAUNCHING STRESS TEST SCENARIO: {args.mode.upper()}")
     print(f" Target WebSocket URL:  {ws_url}")
     print(f" Target Concurrency:    {args.concurrency} concurrent callers")
+    print(f" Per-Call Timeout:      {args.timeout}s")
     print(f" Booking System:        Google Calendar (GP & Nurse)")
     print("=" * 78)
 
