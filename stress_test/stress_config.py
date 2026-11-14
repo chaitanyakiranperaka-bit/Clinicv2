@@ -180,7 +180,7 @@ TEST_SCRIPTS = [
         "id": "script_01",
         "clinician": "Dr. Yousuf",
         "turns": [
-            {"turn_index": 1, "turn_key": "s01_t1", "text": "Hi, this is Sean. I'd like to book an appointment with Dr. Yousuf on Monday at 10 am."},
+            {"turn_index": 1, "turn_key": "s01_t1", "text": "Hi, this is Sean. Please book an appointment with Dr. Yousuf at the earliest availability."},
             {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
