@@ -30,17 +30,21 @@ class SimulatedCall:
         call_id: str,
         caller_phone: str,
         script: Dict[str, Any],
+        patient_name: str = "Unknown Patient",
         ws_url: str = WS_URL,
         timeout_sec: float = CALL_TIMEOUT_SEC
     ):
         self.call_id = call_id
         self.caller_phone = caller_phone
+        self.patient_name = patient_name
         self.script = script
         self.ws_url = f"{ws_url}?caller_id={urllib.parse.quote(caller_phone)}"
         self.timeout_sec = timeout_sec
         self.metric = CallMetric(
             call_id=call_id,
             caller_phone=caller_phone,
+            patient_name=patient_name,
+            script_id=script.get("id", "script_01"),
             clinician=script.get("clinician", "Dr. Yousuf")
         )
 
@@ -111,26 +115,36 @@ class SimulatedCall:
         """Awaits initial bot greeting audio and transcripts, draining all greeting sentences."""
         greeting_audio_count = 0
         deadline = time.time() + 12.0
+        greeting_text = ""
+        first_audio_time = None
 
         while time.time() < deadline:
             try:
                 # Wait for greeting packets; subsequent audio chunks have a shorter timeout
                 poll_timeout = 3.5 if greeting_audio_count == 0 else 1.5
                 raw = await asyncio.wait_for(ws.recv(), timeout=poll_timeout)
+                now = time.time()
                 if isinstance(raw, str):
                     data = json.loads(raw)
                     msg_type = data.get("type")
                     if msg_type == "audio":
+                        if not first_audio_time:
+                            first_audio_time = now
                         greeting_audio_count += 1
                         # Acknowledge playback of this greeting sentence
                         await ws.send(json.dumps({"action": "playback_finished"}))
                     elif msg_type == "transcript" and data.get("role") == "Deirdre":
-                        pass
+                        greeting_text += " " + data.get("text", "")
             except asyncio.TimeoutError:
                 # If we received at least one greeting audio chunk and then 1.5s of silence,
                 # the greeting is completely finished and drained from the socket buffer.
                 if greeting_audio_count > 0:
                     break
+
+        self.metric.greeting_text = greeting_text.strip()
+        if first_audio_time:
+            self.metric.greeting_received_at = first_audio_time
+            self.metric.greeting_latency_ms = max(0.0, (first_audio_time - self.metric.started_at) * 1000.0)
 
         # Brief conversational pause before caller starts speaking
         await asyncio.sleep(0.3)
@@ -143,7 +157,8 @@ class SimulatedCall:
 
         turn_metric = TurnMetric(
             turn_index=turn_idx,
-            user_text=text
+            user_text=text,
+            speech_started_at=time.time()
         )
         self.metric.turns.append(turn_metric)
 
@@ -171,13 +186,13 @@ class SimulatedCall:
 
     async def _receive_turn_response(self, ws, turn_metric: TurnMetric):
         """Collects server response packets for the current turn."""
-        turn_timeout = time.time() + 30.0
+        turn_timeout = time.time() + 35.0
         last_packet_time = time.time()
 
         while time.time() < turn_timeout:
             try:
                 # Allow generous window between LLM / Tool / TTS packets
-                raw = await asyncio.wait_for(ws.recv(), timeout=2.5)
+                raw = await asyncio.wait_for(ws.recv(), timeout=4.5)
                 now = time.time()
                 last_packet_time = now
 

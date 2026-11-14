@@ -38,11 +38,10 @@ def check_server_health(host: str, port: int) -> bool:
         return False
     return False
 
-def save_results_json(summary: dict, hardware: dict, scenario: str, concurrency: int):
+def save_results_json(summary: dict, hardware: dict, scenario: str, concurrency: int, ts: str):
     """Saves benchmark results to a timestamped JSON report in stress_test/results/."""
     results_dir = _cur_dir / "results"
     results_dir.mkdir(parents=True, exist_ok=True)
-    ts = time.strftime("%Y%m%d_%H%M%S")
     filepath = results_dir / f"stress_{scenario}_c{concurrency}_{ts}.json"
     
     payload = {
@@ -109,13 +108,26 @@ async def main_async():
     runner.metrics.print_report()
     runner.monitor.print_summary()
 
-    # Save JSON Report
+    ts = time.strftime("%Y%m%d_%H%M%S")
+
+    # 1. Save Aggregated JSON Report
     save_results_json(
         summary=runner.metrics.get_summary(),
         hardware=runner.monitor.get_summary(),
         scenario=args.mode,
-        concurrency=args.concurrency
+        concurrency=args.concurrency,
+        ts=ts
     )
+
+    # 2. Export Detailed Message-by-Message Conversation Transcripts with Inter-Message Delays
+    conv_dir = _cur_dir / "results" / "conversations" / f"stress_{args.mode}_c{args.concurrency}_{ts}"
+    runner.metrics.export_conversations(conv_dir)
+    print(f"[CONVERSATION AUDITS SAVED]: {conv_dir}/")
+    print(f"  • Master Transcript:  {conv_dir}/all_conversations.txt")
+    print(f"  • Markdown Index:     {conv_dir}/INDEX.md")
+    print(f"  • JSON Dump:          {conv_dir}/conversations.json")
+    print(f"  • Individual Calls:   {conv_dir}/calls/ ({len(runner.metrics.calls)} files)")
+    print("=" * 78 + "\n")
 
 def main():
     try:
@@ -125,4 +137,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

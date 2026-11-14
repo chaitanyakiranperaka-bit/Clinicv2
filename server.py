@@ -26,8 +26,21 @@ import calendar_service
 import stt
 import tts
 import llm
+from concurrent.futures import ThreadPoolExecutor
 
 app = FastAPI()
+
+# High-concurrency thread pool: prevents Bedrock/boto3 and STT/TTS from queuing up behind default 8 threads
+thread_pool = ThreadPoolExecutor(max_workers=64)
+
+@app.on_event("startup")
+def startup_event():
+    try:
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(thread_pool)
+        print("[INIT EXECUTOR] Set default ThreadPoolExecutor to 64 workers for high concurrency.", flush=True)
+    except Exception as e:
+        print(f"[WARN] Failed to set ThreadPoolExecutor: {e}", flush=True)
 
 print("[INIT VAD] Loading Silero VAD (CPU)...", flush=True)
 global_vad_model = load_silero_vad()
@@ -205,9 +218,15 @@ async def call_websocket(websocket: WebSocket):
     messages.append({"role": "assistant", "content": [{"text": greeting}]})
     asyncio.create_task(speak_text(greeting))
 
+    filler_sent_this_turn = False
+
     async def handle_tool_start(tool_name: str):
+        nonlocal filler_sent_this_turn
         await send_json({"type": "tool_start", "tool": tool_name})
-        # Play pre-rendered natural conversational filler audio immediately to eliminate dead air during GCal/Bedrock latency
+        # If filler audio was already played at the start of this turn, do not repeat
+        if filler_sent_this_turn:
+            return
+
         filler_b64 = None
         filler_text = ""
         if tool_name == "check_calendar_slots":
@@ -216,12 +235,13 @@ async def call_websocket(websocket: WebSocket):
             filler_b64, filler_text = tts.get_book_filler()
 
         if filler_b64:
+            filler_sent_this_turn = True
             if filler_text:
                 await send_json({"type": "transcript", "role": "Deirdre", "text": filler_text})
             await send_json({"type": "audio", "b64": filler_b64})
 
     async def process_user_turn(audio_np: np.ndarray):
-        nonlocal is_processing_turn, current_turn_task, unspoken_sentences, current_speaking_sentence
+        nonlocal is_processing_turn, current_turn_task, unspoken_sentences, current_speaking_sentence, filler_sent_this_turn
         # Minimum audio frame check: ~250ms (4000 samples at 16kHz) to filter mic pops
         if len(audio_np) < 4000:
             if (unspoken_sentences or current_speaking_sentence) and not is_bot_speaking:
@@ -263,6 +283,22 @@ async def call_websocket(websocket: WebSocket):
 
         messages.append({"role": "user", "content": [{"text": user_text}]})
         is_processing_turn = True
+        filler_sent_this_turn = False
+
+        # Fast Conversational Filler:
+        # Immediately acknowledge scheduling queries within ~200ms so TTFA stays sub-second and eliminates dead air
+        lower_user = user_text.lower()
+        scheduling_keywords = (
+            "book", "appointment", "slot", "available", "see ", "dr.", "doctor",
+            "nurse", "dentist", "check", "monday", "tuesday", "wednesday",
+            "thursday", "friday", "morning", "afternoon", "tomorrow", "today", "confirm"
+        )
+        if any(w in lower_user for w in scheduling_keywords):
+            filler_b64, filler_text = tts.get_check_filler()
+            if filler_b64:
+                filler_sent_this_turn = True
+                await send_json({"type": "transcript", "role": "Deirdre", "text": filler_text})
+                await send_json({"type": "audio", "b64": filler_b64})
 
         try:
             reply_text = await llm.execute_turn(

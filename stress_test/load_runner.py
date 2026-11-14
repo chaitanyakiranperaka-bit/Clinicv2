@@ -32,6 +32,7 @@ class LoadRunner:
         return {
             "call_id": f"call-{self._call_counter:03d}",
             "phone": caller["phone"],
+            "name": caller.get("name", "Unknown Patient"),
             "script": script
         }
 
@@ -41,6 +42,7 @@ class LoadRunner:
         sim = SimulatedCall(
             call_id=caller["call_id"],
             caller_phone=caller["phone"],
+            patient_name=caller["name"],
             script=caller["script"],
             ws_url=self.ws_url
         )
@@ -57,6 +59,7 @@ class LoadRunner:
             sim = SimulatedCall(
                 call_id=caller["call_id"],
                 caller_phone=caller["phone"],
+                patient_name=caller["name"],
                 script=caller["script"],
                 ws_url=self.ws_url
             )
@@ -90,6 +93,7 @@ class LoadRunner:
                 sim = SimulatedCall(
                     call_id=caller["call_id"],
                     caller_phone=caller["phone"],
+                    patient_name=caller["name"],
                     script=caller["script"],
                     ws_url=self.ws_url
                 )
@@ -122,6 +126,7 @@ class LoadRunner:
             sim = SimulatedCall(
                 call_id=caller["call_id"],
                 caller_phone=caller["phone"],
+                patient_name=caller["name"],
                 script=caller["script"],
                 ws_url=self.ws_url
             )
@@ -150,4 +155,3 @@ class LoadRunner:
 
         await self.monitor.stop()
         self.metrics.finish_test()
-
