@@ -11,7 +11,7 @@ from config import AWS_REGION, BEDROCK_MODEL_ID, BEDROCK_TOOLS, DUBLIN_TZ, KNOWN
 import calendar_service
 
 print(f"[INIT LLM] Connecting to Bedrock ({AWS_REGION} | {BEDROCK_MODEL_ID})...", flush=True)
-boto_config = Config(connect_timeout=4, read_timeout=12, retries={"max_attempts": 1})
+boto_config = Config(connect_timeout=4, read_timeout=12, max_pool_connections=128, retries={"max_attempts": 1})
 bedrock_client = boto3.client("bedrock-runtime", region_name=AWS_REGION, config=boto_config)
 
 MAX_TOOL_HOPS = 4
