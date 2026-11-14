@@ -63,7 +63,8 @@ def list_booked_slots_for_date(clinician: str, date_str: str) -> list:
                 timeMin=day_start.isoformat(),
                 timeMax=day_end.isoformat(),
                 singleEvents=True,
-                orderBy="startTime"
+                orderBy="startTime",
+                maxResults=250
             ).execute()
             
             clinician_lower = clinician.lower()
@@ -122,6 +123,109 @@ def list_booked_slots_for_date(clinician: str, date_str: str) -> list:
                 booked.add(b["slot_time"])
 
     return sorted(list(booked))
+
+
+def find_next_available_day_slots(clinician: str, start_dt: datetime, max_days: int = 21) -> tuple:
+    """Scans up to `max_days` forward from `start_dt` in a single Google Calendar range query
+    to find the earliest open clinic day (Mon-Sat) that has at least one free slot.
+    Returns (date_iso, free_slots_list) or (None, []).
+    """
+    now_dublin = datetime.now(DUBLIN_TZ)
+    today_iso = now_dublin.strftime("%Y-%m-%d")
+    cutoff_str = (now_dublin + timedelta(minutes=15)).strftime("%H:%M")
+
+    base_dt = max(start_dt, now_dublin)
+    candidate_dates = []
+    for offset in range(1, max_days + 1):
+        cand_dt = base_dt + timedelta(days=offset)
+        if cand_dt.weekday() == 6:  # Skip Sundays
+            continue
+        candidate_dates.append(cand_dt.strftime("%Y-%m-%d"))
+
+    if not candidate_dates:
+        return None, []
+
+    booked_by_date = {d_iso: set() for d_iso in candidate_dates}
+    service = get_gcal_service()
+    if service:
+        try:
+            range_start = datetime.strptime(candidate_dates[0], "%Y-%m-%d").replace(
+                hour=0, minute=0, second=0, tzinfo=DUBLIN_TZ
+            )
+            range_end = datetime.strptime(candidate_dates[-1], "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59, tzinfo=DUBLIN_TZ
+            )
+            events_result = service.events().list(
+                calendarId=GOOGLE_CALENDAR_ID,
+                timeMin=range_start.isoformat(),
+                timeMax=range_end.isoformat(),
+                singleEvents=True,
+                orderBy="startTime",
+                maxResults=2500
+            ).execute()
+
+            clinician_lower = clinician.lower()
+            clinician_keywords = [clinician_lower, f"[{clinician_lower}]"]
+            if "nurse" in clinician_lower:
+                clinician_keywords.extend(["nurse kelly", "kelly", "nurse appointment", "nurse"])
+            elif "dentist" in clinician_lower or "shailaja" in clinician_lower:
+                clinician_keywords.extend(["dentist shailaja", "shailaja", "dental"])
+            elif "yousuf" in clinician_lower or "dr" in clinician_lower:
+                clinician_keywords.extend(["dr. yousuf", "yousuf", "dr yousuf", "routine gp", "gp"])
+
+            for ev in events_result.get("items", []):
+                summary = ev.get("summary", "").lower()
+                desc = ev.get("description", "").lower()
+                combined = f"{summary} {desc}"
+
+                is_clinician = any(k in combined for k in clinician_keywords)
+                is_clinic_wide = any(k in summary for k in ("closed", "holiday", "all staff", "unavailable", "out of office", "maintenance"))
+
+                if is_clinician or is_clinic_wide:
+                    start_data = ev.get("start", {})
+                    end_data = ev.get("end", {})
+
+                    if "date" in start_data and not start_data.get("dateTime"):
+                        ev_start = start_data["date"]
+                        ev_end = end_data.get("date", ev_start)
+                        for d_iso in candidate_dates:
+                            if ev_start <= d_iso < ev_end or ev_start == d_iso:
+                                booked_by_date[d_iso].update(ALL_DAILY_SLOTS)
+                    elif "dateTime" in start_data:
+                        start_iso = start_data["dateTime"]
+                        end_iso = end_data.get("dateTime")
+                        if "T" in start_iso:
+                            dt_start = datetime.fromisoformat(start_iso).astimezone(DUBLIN_TZ)
+                            if end_iso and "T" in end_iso:
+                                dt_end = datetime.fromisoformat(end_iso).astimezone(DUBLIN_TZ)
+                            else:
+                                dt_end = dt_start + timedelta(minutes=15)
+
+                            curr = dt_start
+                            while curr < dt_end:
+                                d_key = curr.strftime("%Y-%m-%d")
+                                if d_key in booked_by_date:
+                                    booked_by_date[d_key].add(curr.strftime("%H:%M"))
+                                curr += timedelta(minutes=15)
+        except Exception as e:
+            _thread_local.service = None
+            print(f"[GCal Range Query Error]: {e}", flush=True)
+
+    with _local_bookings_lock:
+        for b in LOCAL_BOOKINGS:
+            b_date = b.get("date")
+            if b.get("clinician") == clinician and b_date in booked_by_date:
+                booked_by_date[b_date].add(b["slot_time"])
+
+    for d_iso in candidate_dates:
+        booked_set = booked_by_date[d_iso]
+        free = [s for s in ALL_DAILY_SLOTS if s not in booked_set]
+        if d_iso == today_iso:
+            free = [s for s in free if s >= cutoff_str]
+        if free:
+            return d_iso, free
+
+    return None, []
 
 def parse_time_preference(pref: str):
     """Extracts a target slot HH:MM from strings like '10:30', '10.30', '11.45 am', '10am', '2pm', '10'."""
@@ -284,99 +388,65 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
     except ValueError:
         return {"available": False, "message": f"Invalid date format: {date_str}. Please use YYYY-MM-DD."}
 
-    formatted_date = format_human_date(date_str)
+    original_date_str = date_str
+    original_formatted_date = format_human_date(date_str)
+    formatted_date = original_formatted_date
     now_dublin = datetime.now(DUBLIN_TZ)
+    redirected = False
+    redirect_prefix = ""
 
-    # 1. Reject past dates
-    if query_date.date() < now_dublin.date():
-        tomorrow_dt = now_dublin + timedelta(days=1)
-        if tomorrow_dt.weekday() == 6:
-            tomorrow_dt += timedelta(days=1)
-        tomorrow_iso = tomorrow_dt.strftime("%Y-%m-%d")
-        tomorrow_fmt = format_human_date(tomorrow_iso)
-        return {
-            "status": "error",
-            "available": False,
-            "date": date_str,
-            "formatted_date": formatted_date,
-            "next_open_date": tomorrow_iso,
-            "next_open_date_formatted": tomorrow_fmt,
-            "suggested_slots_to_quote": [],
-            "all_open_slots": [],
-            "availability_verdict": f"{formatted_date} has already passed.",
-            "instruction": f"Tell the caller: '{formatted_date} has already passed. The earliest available date is {tomorrow_fmt}. Would you like me to check times for {tomorrow_fmt}?'",
-            "message": f"{formatted_date} has already passed."
-        }
-
-    # 2. Clinic is closed on Sundays (weekday() == 6)
-    if query_date.weekday() == 6:
-        days_until_monday = (7 - query_date.weekday()) % 7 or 7
-        next_monday_dt = query_date + timedelta(days=days_until_monday)
-        next_monday_iso = next_monday_dt.strftime("%Y-%m-%d")
-        next_monday_fmt = format_human_date(next_monday_iso)
-        return {
-            "available": False,
-            "closed": True,
-            "date": date_str,
-            "formatted_date": formatted_date,
-            "next_open_date": next_monday_iso,
-            "next_open_date_formatted": next_monday_fmt,
-            "message": f"The clinic is closed on Sundays ({formatted_date}). Please offer {next_monday_fmt} ({next_monday_iso}) or advise D-Doc/K-Doc GP cooperative for urgent issues."
-        }
-
-    booked = list_booked_slots_for_date(clinician, date_str)
-    
-    # 3. Filter out already booked slots
-    free_slots = [s for s in ALL_DAILY_SLOTS if s not in booked]
-
-    # 4. If query date is today, filter out past slots (plus 15-minute buffer)
-    if date_str == now_dublin.strftime("%Y-%m-%d"):
-        cutoff_dt = now_dublin + timedelta(minutes=15)
-        cutoff_str = cutoff_dt.strftime("%H:%M")
-        free_slots = [s for s in free_slots if s >= cutoff_str]
-
-    if not free_slots:
-        is_today = (date_str == now_dublin.strftime("%Y-%m-%d"))
-        next_day_dt = query_date + timedelta(days=1)
-        if next_day_dt.weekday() == 6:
-            next_day_dt += timedelta(days=1)
-        next_day_iso = next_day_dt.strftime("%Y-%m-%d")
-        next_day_fmt = format_human_date(next_day_iso)
-        next_week_dt = query_date + timedelta(days=7)
-        if next_week_dt.weekday() == 6:
-            next_week_dt += timedelta(days=1)
-        next_week_iso = next_week_dt.strftime("%Y-%m-%d")
-        next_week_fmt = format_human_date(next_week_iso)
-
-        if is_today:
-            msg = f"All appointment slots for today ({formatted_date}) have already passed or are fully booked."
-            instruction = (
-                f"Tell the caller: 'All appointments for today ({formatted_date}) have already passed. "
-                f"The next open clinic day is {next_day_fmt}. Would you like me to check times for {next_day_fmt}?' "
-                f"CRITICAL: Do NOT quote or invent any times for {formatted_date}."
-            )
+    # 1. Past dates or Sundays: automatically scan forward to the next open day with free slots
+    if query_date.date() < now_dublin.date() or query_date.weekday() == 6:
+        scan_start = (now_dublin - timedelta(days=1)) if query_date.date() < now_dublin.date() else query_date
+        next_date_iso, free_slots = find_next_available_day_slots(clinician, scan_start, max_days=21)
+        if not next_date_iso:
+            return {
+                "status": "error",
+                "available": False,
+                "date": date_str,
+                "formatted_date": formatted_date,
+                "suggested_slots_to_quote": [],
+                "all_open_slots": [],
+                "availability_verdict": f"No open slots found for {clinician} over the next 3 weeks.",
+                "instruction": f"Tell the caller: 'I apologize, but {clinician} has no open appointments available over the next three weeks.'",
+                "message": f"No open slots found for {clinician}."
+            }
+        redirected = True
+        if query_date.weekday() == 6:
+            redirect_prefix = f"The clinic is closed on Sundays ({original_formatted_date}). "
         else:
-            msg = f"No remaining open slots for {clinician} on {formatted_date}."
-            instruction = (
-                f"Tell the caller: 'I am sorry, but {clinician} has no remaining appointments available on {formatted_date}. "
-                f"Would you like me to check the next open day on {next_day_fmt}, or next week on {next_week_fmt}?' "
-                f"NOTE: If the caller wants the earliest available day, call check_calendar_slots with date='{next_day_iso}'. "
-                f"CRITICAL: Do NOT quote or invent any times for {formatted_date}."
-            )
+            redirect_prefix = f"{original_formatted_date} has already passed. "
+        date_str = next_date_iso
+        formatted_date = format_human_date(date_str)
+    else:
+        booked = list_booked_slots_for_date(clinician, date_str)
+        free_slots = [s for s in ALL_DAILY_SLOTS if s not in booked]
 
-        return {
-            "status": "error",
-            "available": False,
-            "date": date_str,
-            "formatted_date": formatted_date,
-            "next_open_date": next_day_iso,
-            "next_open_date_formatted": next_day_fmt,
-            "suggested_slots_to_quote": [],
-            "all_open_slots": [],
-            "availability_verdict": msg,
-            "instruction": instruction,
-            "message": msg
-        }
+        # If query date is today, filter out past slots (plus 15-minute buffer)
+        if date_str == now_dublin.strftime("%Y-%m-%d"):
+            cutoff_dt = now_dublin + timedelta(minutes=15)
+            cutoff_str = cutoff_dt.strftime("%H:%M")
+            free_slots = [s for s in free_slots if s >= cutoff_str]
+
+        # Automatically scan forward to the next available date with free slots instead of looping day-by-day
+        if not free_slots:
+            next_date_iso, next_free_slots = find_next_available_day_slots(clinician, query_date, max_days=21)
+            if not next_date_iso:
+                return {
+                    "status": "error",
+                    "available": False,
+                    "date": date_str,
+                    "formatted_date": formatted_date,
+                    "suggested_slots_to_quote": [],
+                    "all_open_slots": [],
+                    "availability_verdict": f"No open slots found for {clinician} over the next 3 weeks.",
+                    "instruction": f"Tell the caller: 'I apologize, but {clinician} has no open appointments available over the next three weeks.'",
+                    "message": f"No open slots found for {clinician}."
+                }
+            redirected = True
+            date_str = next_date_iso
+            formatted_date = format_human_date(date_str)
+            free_slots = next_free_slots
 
     morning = [s for s in free_slots if int(s.split(":")[0]) < 13]
     afternoon = [s for s in free_slots if int(s.split(":")[0]) >= 13]
@@ -397,49 +467,85 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
         if exact_available:
             suggested = [target_slot]
             status_msg = f"{target_spoken} is AVAILABLE with {clinician} on {formatted_date}."
-            instruction = (
-                f"Tell the caller: 'Yes, {target_spoken} is available with {clinician} on {formatted_date}. "
-                "Would you like me to book that for you?' Wait for their explicit confirmation."
-            )
+            if redirected:
+                instruction = (
+                    f"Tell the caller: '{redirect_prefix}The earliest available day with {clinician} is {formatted_date}, and {target_spoken} is open. "
+                    f"Would you like me to book {target_spoken} on {formatted_date} for you?' Wait for their explicit confirmation."
+                )
+            else:
+                instruction = (
+                    f"Tell the caller: 'Yes, {target_spoken} is available with {clinician} on {formatted_date}. "
+                    "Would you like me to book that for you?' Wait for their explicit confirmation."
+                )
         else:
             suggested = sorted(closest)
             suggested_spoken = [format_spoken_time(s) for s in suggested]
+            first_spoken = suggested_spoken[0]
+            other_spoken = ", ".join(suggested_spoken[1:])
+            other_clause = f", or I also have {other_spoken}" if other_spoken else ""
             is_today = (date_str == now_dublin.strftime("%Y-%m-%d"))
             target_in_past = (is_today and target_slot < now_dublin.strftime("%H:%M"))
-            if target_in_past:
+            if redirected:
+                status_msg = f"Earliest available date with {clinician} is {formatted_date}. Open slots: {', '.join(suggested_spoken)}."
+                instruction = (
+                    f"Tell the caller: '{redirect_prefix}The earliest available appointment with {clinician} is on {formatted_date} at {first_spoken}{other_clause}. "
+                    f"Would you like me to book {first_spoken} on {formatted_date} for you?'"
+                )
+            elif target_in_past:
                 status_msg = f"{target_spoken} has ALREADY PASSED today ({formatted_date}). Closest remaining open times today are: {', '.join(suggested_spoken)}."
                 instruction = (
-                    f"Tell the caller: '{target_spoken} has already passed today ({formatted_date}), but I have {', '.join(suggested_spoken)} open later today. "
-                    "Would one of those times suit you?'"
+                    f"Tell the caller: '{target_spoken} has already passed today ({formatted_date}), but I have {first_spoken} open later today{other_clause}. "
+                    f"Would you like me to book {first_spoken} for you?'"
                 )
             else:
                 status_msg = f"{target_spoken} is NOT available with {clinician} on {formatted_date}. Closest alternative times on {formatted_date} are: {', '.join(suggested_spoken)}."
                 instruction = (
-                    f"Tell the caller: '{target_spoken} is not available with {clinician} on {formatted_date}, but I have {', '.join(suggested_spoken)} open. "
-                    "Would one of those times suit you?'"
+                    f"Tell the caller: '{target_spoken} is not available with {clinician} on {formatted_date}, but I have {first_spoken} open{other_clause}. "
+                    f"Would you like me to book {first_spoken} for you?'"
                 )
     elif "morning" in pref:
         suggested = morning[:3] if morning else afternoon[:3]
         suggested_spoken = [format_spoken_time(s) for s in suggested]
+        first_spoken = suggested_spoken[0]
+        other_spoken = ", ".join(suggested_spoken[1:])
+        other_clause = f", or I also have {other_spoken}" if other_spoken else ""
         status_msg = f"Available morning slots with {clinician} on {formatted_date}: {', '.join(suggested_spoken)}"
-        instruction = f"Quote 2 or 3 of these morning times on {formatted_date}: {', '.join(suggested_spoken)}."
+        instruction = (
+            f"Tell the caller: '{redirect_prefix}The earliest available morning appointment with {clinician} is on {formatted_date} at {first_spoken}{other_clause}. "
+            f"Would you like me to book {first_spoken} on {formatted_date} for you?'"
+        )
     elif "afternoon" in pref:
         suggested = afternoon[:3] if afternoon else morning[:3]
         suggested_spoken = [format_spoken_time(s) for s in suggested]
+        first_spoken = suggested_spoken[0]
+        other_spoken = ", ".join(suggested_spoken[1:])
+        other_clause = f", or I also have {other_spoken}" if other_spoken else ""
         status_msg = f"Available afternoon slots with {clinician} on {formatted_date}: {', '.join(suggested_spoken)}"
-        instruction = f"Quote 2 or 3 of these afternoon times on {formatted_date}: {', '.join(suggested_spoken)}."
+        instruction = (
+            f"Tell the caller: '{redirect_prefix}The earliest available afternoon appointment with {clinician} is on {formatted_date} at {first_spoken}{other_clause}. "
+            f"Would you like me to book {first_spoken} on {formatted_date} for you?'"
+        )
     else:
         suggested = (morning[:2] + afternoon[:2]) if (morning and afternoon) else free_slots[:3]
         suggested_spoken = [format_spoken_time(s) for s in suggested]
+        first_spoken = suggested_spoken[0]
+        other_spoken = ", ".join(suggested_spoken[1:])
+        other_clause = f", or I also have {other_spoken}" if other_spoken else ""
         status_msg = f"Available slots with {clinician} on {formatted_date}: {', '.join(suggested_spoken)}"
-        instruction = f"Quote 2 or 3 of these times on {formatted_date}: {', '.join(suggested_spoken)}. Ask which time they prefer."
+        instruction = (
+            f"Tell the caller: '{redirect_prefix}The earliest available appointment with {clinician} is on {formatted_date} at {first_spoken}{other_clause}. "
+            f"Would you like me to book {first_spoken} on {formatted_date} for you?'"
+        )
 
     return {
         "status": "success",
+        "available": True,
         "clinician": clinician,
+        "requested_date": original_date_str,
         "date": date_str,
         "formatted_date": formatted_date,
-        "is_requested_time_available": bool(target_slot and target_slot in free_slots),
+        "is_requested_time_available": bool(target_slot and target_slot in free_slots and not redirected),
+        "earliest_slot": suggested[0] if suggested else None,
         "suggested_slots_to_quote": suggested,
         "all_open_slots": free_slots,
         "availability_verdict": status_msg,
@@ -463,6 +569,19 @@ def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_na
     # Check if slot is in the past
     now_dublin = datetime.now(DUBLIN_TZ)
     if appt_dt < now_dublin:
+        next_date_iso, next_free = find_next_available_day_slots(clinician, now_dublin, max_days=21)
+        if next_date_iso and next_free:
+            next_fmt = format_human_date(next_date_iso)
+            first_slot = next_free[0]
+            first_spoken = format_spoken_time(first_slot)
+            return {
+                "success": False,
+                "date": next_date_iso,
+                "suggested_slots_to_quote": next_free[:3],
+                "all_open_slots": next_free,
+                "error": f"{slot_time} on {date_str} has already passed.",
+                "instruction": f"Tell the caller: 'I apologize, but {format_spoken_time(slot_time)} on {format_human_date(date_str)} has already passed. The earliest available slot is {first_spoken} on {next_fmt}. Would you like me to book that for you?'"
+            }
         tomorrow_iso = (now_dublin + timedelta(days=1)).strftime("%Y-%m-%d")
         tomorrow_fmt = format_human_date(tomorrow_iso)
         return {
@@ -478,23 +597,38 @@ def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_na
         all_open = [s for s in ALL_DAILY_SLOTS if s not in booked and (date_str != today_iso or s >= cutoff_str)]
         suggested = all_open[:3]
         if suggested:
-            suggested_spoken = ", ".join(format_spoken_time(s) for s in suggested)
+            first_spoken = format_spoken_time(suggested[0])
+            other_spoken = ", ".join(format_spoken_time(s) for s in suggested[1:])
+            other_clause = f", or {other_spoken}" if other_spoken else ""
             return {
                 "success": False,
                 "date": date_str,
                 "error": f"{slot_time} with {clinician} on {date_str} is already booked.",
                 "suggested_slots_to_quote": suggested,
                 "all_open_slots": all_open,
-                "instruction": f"Tell the caller: 'I apologize, but {format_spoken_time(slot_time)} was just taken. However, I have {suggested_spoken} open on that day. Would one of those suit you?'"
+                "instruction": f"Tell the caller: 'I apologize, but {format_spoken_time(slot_time)} was just taken. However, I have {first_spoken}{other_clause} open on {format_human_date(date_str)}. Would you like me to book {first_spoken} for you?'"
             }
         else:
+            next_date_iso, next_free = find_next_available_day_slots(clinician, appt_dt, max_days=21)
+            if next_date_iso and next_free:
+                next_fmt = format_human_date(next_date_iso)
+                next_suggested = next_free[:3]
+                first_spoken = format_spoken_time(next_suggested[0])
+                return {
+                    "success": False,
+                    "date": next_date_iso,
+                    "error": f"{slot_time} with {clinician} on {date_str} is already booked, and no remaining slots exist on that date.",
+                    "suggested_slots_to_quote": next_suggested,
+                    "all_open_slots": next_free,
+                    "instruction": f"Tell the caller: 'I apologize, but {format_spoken_time(slot_time)} was just taken and {format_human_date(date_str)} is now full. However, I have {first_spoken} open on {next_fmt}. Would you like me to book that for you?'"
+                }
             return {
                 "success": False,
                 "date": date_str,
                 "error": f"{slot_time} with {clinician} on {date_str} is already booked, and no remaining slots exist on that date.",
                 "suggested_slots_to_quote": [],
                 "all_open_slots": [],
-                "instruction": f"Tell the caller: 'I apologize, but {format_spoken_time(slot_time)} was just taken and all other appointments for {format_human_date(date_str)} are full. Would you like me to check next week instead?'"
+                "instruction": f"Tell the caller: 'I apologize, but {format_spoken_time(slot_time)} was just taken and all other appointments for {format_human_date(date_str)} are full.'"
             }
 
     start_dt = appt_dt

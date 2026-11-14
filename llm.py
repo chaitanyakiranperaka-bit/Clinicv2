@@ -194,8 +194,15 @@ def resolve_agreed_date(tool_input: dict, messages: list) -> str:
     now_dublin = datetime.now(DUBLIN_TZ)
     today_iso = now_dublin.strftime("%Y-%m-%d")
 
-    # 1. Prioritize explicit valid date provided in tool_input
+    last_check = find_last_calendar_check(messages)
     raw_date = tool_input.get("date")
+
+    # If the last check redirected a full/closed requested_date to the next available date, use the available date
+    if last_check and last_check.get("date") and last_check.get("available"):
+        if not raw_date or raw_date.strip() == last_check.get("requested_date"):
+            return last_check["date"].strip()
+
+    # 1. Prioritize explicit valid date provided in tool_input
     if raw_date:
         try:
             dt = datetime.strptime(raw_date.strip(), "%Y-%m-%d").replace(tzinfo=DUBLIN_TZ)
@@ -206,7 +213,6 @@ def resolve_agreed_date(tool_input: dict, messages: list) -> str:
             pass
 
     # 2. Check if a recent check_calendar_slots tool execution confirmed a date
-    last_check = find_last_calendar_check(messages)
     if last_check and last_check.get("date"):
         try:
             check_dt = datetime.strptime(last_check["date"].strip(), "%Y-%m-%d").replace(tzinfo=DUBLIN_TZ)
