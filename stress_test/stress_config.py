@@ -181,7 +181,7 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s01_t1", "text": "Hi, this is Sean. I'd like to book an appointment with Dr. Yousuf on Monday at 10 am."},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -197,7 +197,7 @@ TEST_SCRIPTS = [
         "clinician": "Dentist Shailaja",
         "turns": [
             {"turn_index": 1, "turn_key": "s03_t1", "text": "Hi Deirdre, can I see Dentist Shailaja on Tuesday at 11 am for a checkup?"},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -221,7 +221,7 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s06_t1", "text": "Hello, I'd like an appointment with Dr. Yousuf on Thursday morning at 10:30 am."},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -245,7 +245,7 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s09_t1", "text": "Hi, can I book Dr. Yousuf on Friday afternoon at 2:30 pm?"},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -269,7 +269,7 @@ TEST_SCRIPTS = [
         "clinician": "Dentist Shailaja",
         "turns": [
             {"turn_index": 1, "turn_key": "s12_t1", "text": "Hello, can I book an appointment with Dentist Shailaja on Wednesday at 11:30 am?"},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -301,7 +301,7 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s16_t1", "text": "Hello Deirdre, I would like to see Dr. Yousuf on Monday at 11 am."},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -309,7 +309,7 @@ TEST_SCRIPTS = [
         "clinician": "Dentist Shailaja",
         "turns": [
             {"turn_index": 1, "turn_key": "s17_t1", "text": "Hi, can I book an appointment with Dentist Shailaja on Monday at 9:15 am?"},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -317,7 +317,7 @@ TEST_SCRIPTS = [
         "clinician": "Nurse Kelly",
         "turns": [
             {"turn_index": 1, "turn_key": "s18_t1", "text": "Hello Deirdre, I need to see Nurse Kelly on Monday morning at 10:30 am."},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -325,7 +325,7 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s19_t1", "text": "Hi Deirdre, could I see Dr. Yousuf on Monday at 11:45 am?"},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -333,7 +333,7 @@ TEST_SCRIPTS = [
         "clinician": "Dentist Shailaja",
         "turns": [
             {"turn_index": 1, "turn_key": "s20_t1", "text": "Hello, can I book Dentist Shailaja on Monday afternoon at 2:15 pm?"},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -341,7 +341,7 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s21_t1", "text": "Hi, I need an appointment with Dr. Yousuf on Wednesday morning at 10:15 am."},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -349,7 +349,7 @@ TEST_SCRIPTS = [
         "clinician": "Nurse Kelly",
         "turns": [
             {"turn_index": 1, "turn_key": "s22_t1", "text": "Hello, is Nurse Kelly open on Monday afternoon at 4:15 pm?"},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -357,7 +357,7 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s23_t1", "text": "Hi Deirdre, can I book Dr. Yousuf on Tuesday morning at 9:15 am?"},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -365,7 +365,7 @@ TEST_SCRIPTS = [
         "clinician": "Nurse Kelly",
         "turns": [
             {"turn_index": 1, "turn_key": "s24_t1", "text": "Hello, I would like to see Nurse Kelly on Tuesday at 10:45 am."},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -373,7 +373,7 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s25_t1", "text": "Hi, can I see Dr. Yousuf on Tuesday morning at 11:45 am?"},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -381,7 +381,7 @@ TEST_SCRIPTS = [
         "clinician": "Nurse Kelly",
         "turns": [
             {"turn_index": 1, "turn_key": "s26_t1", "text": "Hello Deirdre, is Nurse Kelly free on Tuesday afternoon at 3:15 pm?"},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -389,7 +389,7 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s27_t1", "text": "Hi, I need an appointment with Dr. Yousuf on Tuesday at 3:45 pm."},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -397,7 +397,7 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s28_t1", "text": "Hello, could I see Dr. Yousuf on Tuesday afternoon at 4:30 pm?"},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -405,7 +405,7 @@ TEST_SCRIPTS = [
         "clinician": "Nurse Kelly",
         "turns": [
             {"turn_index": 1, "turn_key": "s29_t1", "text": "Hi Deirdre, I would like to book Nurse Kelly on Wednesday morning at 9:15 am."},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -413,7 +413,7 @@ TEST_SCRIPTS = [
         "clinician": "Nurse Kelly",
         "turns": [
             {"turn_index": 1, "turn_key": "s30_t1", "text": "Hello, can I see Nurse Kelly on Wednesday morning at 11:15 am?"},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -421,7 +421,7 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s31_t1", "text": "Hi, can I book Dr. Yousuf on Wednesday afternoon at 2:15 pm?"},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -429,7 +429,7 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s32_t1", "text": "Hello Deirdre, I need to see Dr. Yousuf on Wednesday at 3:30 pm."},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -437,7 +437,7 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s33_t1", "text": "Hi, could I book Dr. Yousuf on Wednesday afternoon at 4:15 pm?"},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -445,7 +445,7 @@ TEST_SCRIPTS = [
         "clinician": "Nurse Kelly",
         "turns": [
             {"turn_index": 1, "turn_key": "s34_t1", "text": "Hello, I would like to see Nurse Kelly on Thursday morning at 9:15 am."},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -453,7 +453,7 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s35_t1", "text": "Hi Deirdre, can I book Dr. Yousuf on Thursday morning at 11:15 am?"},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -461,7 +461,7 @@ TEST_SCRIPTS = [
         "clinician": "Nurse Kelly",
         "turns": [
             {"turn_index": 1, "turn_key": "s36_t1", "text": "Hello, is Nurse Kelly available on Thursday afternoon at 2:30 pm?"},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -469,7 +469,7 @@ TEST_SCRIPTS = [
         "clinician": "Nurse Kelly",
         "turns": [
             {"turn_index": 1, "turn_key": "s37_t1", "text": "Hi, could I book Nurse Kelly on Thursday afternoon at 4:30 pm?"},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -477,7 +477,7 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s38_t1", "text": "Hello Deirdre, can I see Dr. Yousuf on Friday morning at 9:15 am?"},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -485,7 +485,7 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s39_t1", "text": "Hi, I need an appointment with Dr. Yousuf on Friday at 10:15 am."},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     },
     {
@@ -493,7 +493,7 @@ TEST_SCRIPTS = [
         "clinician": "Dr. Yousuf",
         "turns": [
             {"turn_index": 1, "turn_key": "s40_t1", "text": "Hello, can I book Dr. Yousuf on Friday afternoon at 4:15 pm?"},
-            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please confirm that booking for me."}
+            {"turn_index": 2, "turn_key": "confirm_std", "text": "Yes, please book the earliest available slot."}
         ]
     }
 ]

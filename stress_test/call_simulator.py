@@ -114,7 +114,7 @@ class SimulatedCall:
             return {
                 "turn_index": turn_idx,
                 "turn_key": "confirm_std",
-                "text": "Yes, please confirm that booking for me.",
+                "text": "Yes, please book the earliest available slot.",
                 "expected_tool": "check_calendar_slots"
             }
 
