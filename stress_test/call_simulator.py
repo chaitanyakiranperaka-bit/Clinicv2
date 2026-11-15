@@ -57,7 +57,7 @@ class SimulatedCall:
 
         try:
             async with asyncio.timeout(self.timeout_sec):
-                async with websockets.connect(self.ws_url) as ws:
+                async with websockets.connect(self.ws_url, open_timeout=30.0, close_timeout=10.0) as ws:
                     # 1. Wait for Deirdre's greeting
                     await self._wait_for_greeting(ws)
                     self.metric.greeting_received = True

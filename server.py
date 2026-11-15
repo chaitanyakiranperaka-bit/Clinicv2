@@ -45,8 +45,14 @@ async def startup_event():
     except Exception as e:
         print(f"[WARN] Failed to set ThreadPoolExecutor: {e}", flush=True)
 
-print("[INIT VAD] Loading Silero VAD (CPU)...", flush=True)
+print("[INIT VAD] Loading Silero VAD pool (CPU)...", flush=True)
 global_vad_model = load_silero_vad()
+_vad_pool = deque()
+for _ in range(100):
+    try:
+        _vad_pool.append(load_silero_vad())
+    except Exception:
+        break
 
 BACKCHANNELS = {
     "uh-huh", "uh huh", "mhm", "mm-hmm", "mm", "right", "ah", "got it"
@@ -158,9 +164,15 @@ async def call_websocket(websocket: WebSocket):
     current_speaking_sentence = None
     bot_speech_start_time = 0.0
 
-    # Dedicated VAD model instance per connection for state isolation
+    # Dedicated VAD model instance per connection from pre-warmed pool (avoids blocking event loop on disk JIT load)
+    vad_from_pool = False
     try:
-        vad_model = load_silero_vad()
+        if _vad_pool:
+            vad_model = _vad_pool.popleft()
+            vad_from_pool = True
+        else:
+            vad_model = await asyncio.to_thread(load_silero_vad)
+            vad_from_pool = True
     except Exception:
         vad_model = global_vad_model
     vad_model.reset_states()
@@ -450,3 +462,9 @@ async def call_websocket(websocket: WebSocket):
         is_bot_speaking = False
         if current_turn_task and not current_turn_task.done():
             current_turn_task.cancel()
+        if vad_from_pool and len(_vad_pool) < 120:
+            try:
+                vad_model.reset_states()
+                _vad_pool.append(vad_model)
+            except Exception:
+                pass

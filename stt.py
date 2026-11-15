@@ -7,22 +7,12 @@ from faster_whisper import WhisperModel
 device = "cuda" if torch.cuda.is_available() else "cpu"
 compute_type = "float16" if device == "cuda" else "int8"
 threads = 4 if device == "cpu" else 1
-num_workers = 4 if device == "cuda" else 2
 
-print(
-    f"[INIT STT] Loading Faster-Whisper (small.en | device={device} compute_type={compute_type} num_workers={num_workers})...",
-    flush=True,
-)
-stt_model = WhisperModel(
-    "small.en",
-    device=device,
-    compute_type=compute_type,
-    cpu_threads=threads,
-    num_workers=num_workers,
-)
-stt_semaphore = threading.Semaphore(num_workers)
+print(f"[INIT STT] Loading Faster-Whisper (small.en | device={device} compute_type={compute_type})...", flush=True)
+stt_model = WhisperModel("small.en", device=device, compute_type=compute_type, cpu_threads=threads)
+stt_lock = threading.Lock()
 
 def transcribe(audio_np: np.ndarray) -> str:
-    with stt_semaphore:
+    with stt_lock:
         segments, _ = stt_model.transcribe(audio_np, beam_size=1, language="en")
         return " ".join([s.text for s in segments]).strip()

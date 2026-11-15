@@ -1,20 +1,15 @@
 import io
 import re
-import queue
 import base64
 import threading
 from collections import OrderedDict
 import numpy as np
 import soundfile as sf
-import torch
 from kokoro import KPipeline
 
-TTS_WORKER_COUNT = 3 if torch.cuda.is_available() else 1
-print(f"[INIT TTS] Loading {TTS_WORKER_COUNT}x Kokoro-82M (bf_isabella) workers...", flush=True)
-
-_tts_pool = queue.Queue()
-for _ in range(TTS_WORKER_COUNT):
-    _tts_pool.put(KPipeline(lang_code="b"))
+print("[INIT TTS] Loading Kokoro-82M (bf_isabella) with in-memory LRU audio cache...", flush=True)
+tts_pipeline = KPipeline(lang_code="b")
+tts_lock = threading.Lock()
 
 _TTS_CACHE_MAX = 512
 _tts_cache = OrderedDict()
@@ -78,11 +73,11 @@ def synthesize_wav_base64(text: str) -> str:
             _tts_cache.move_to_end(clean)
             return cached
 
-    # 2. Parallel synthesis using pooled Kokoro worker
-    pipeline = _tts_pool.get()
+    # 2. Single-stream GPU synthesis to avoid Python GIL / CUDA stream contention with event loop
     try:
-        generator = pipeline(clean, voice="bf_isabella", speed=1.0)
-        chunks = [audio for _, _, audio in generator]
+        with tts_lock:
+            generator = tts_pipeline(clean, voice="bf_isabella", speed=1.0)
+            chunks = [audio for _, _, audio in generator]
         if not chunks:
             return ""
         combined = np.concatenate(chunks)
@@ -97,8 +92,6 @@ def synthesize_wav_base64(text: str) -> str:
     except Exception as e:
         print(f"[TTS Error]: {e}", flush=True)
         return ""
-    finally:
-        _tts_pool.put(pipeline)
 
 # Polite conversational filler and common greeting/closing sentences pre-synthesized at startup for zero-latency playback
 CHECK_FILLERS = []
