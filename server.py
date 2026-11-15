@@ -31,17 +31,19 @@ from concurrent.futures import ThreadPoolExecutor
 app = FastAPI()
 
 # High-concurrency thread pools:
-# - io_thread_pool (128 workers): handles network I/O (AWS Bedrock & Google Calendar API)
-# - gpu_thread_pool (16 workers): dedicated to local GPU STT & TTS so network waits never starve audio
+# - thread_pool (128 workers): handles network I/O (AWS Bedrock & Google Calendar API)
+# - stt_thread_pool (16 workers): dedicated exclusively to Whisper STT so TTS or network I/O never blocks transcription
+# - tts_thread_pool (16 workers): dedicated exclusively to Kokoro TTS synthesis
 thread_pool = ThreadPoolExecutor(max_workers=128, thread_name_prefix="io_worker")
-gpu_thread_pool = ThreadPoolExecutor(max_workers=16, thread_name_prefix="gpu_worker")
+stt_thread_pool = ThreadPoolExecutor(max_workers=16, thread_name_prefix="stt_worker")
+tts_thread_pool = ThreadPoolExecutor(max_workers=16, thread_name_prefix="tts_worker")
 
 @app.on_event("startup")
 async def startup_event():
     try:
         loop = asyncio.get_running_loop()
         loop.set_default_executor(thread_pool)
-        print("[INIT EXECUTOR] Set default I/O ThreadPoolExecutor to 128 workers and dedicated GPU pool to 16 workers.", flush=True)
+        print("[INIT EXECUTOR] Set default I/O pool (128), dedicated STT pool (16), and dedicated TTS pool (16).", flush=True)
     except Exception as e:
         print(f"[WARN] Failed to set ThreadPoolExecutor: {e}", flush=True)
 
@@ -203,7 +205,7 @@ async def call_websocket(websocket: WebSocket):
         loop = asyncio.get_running_loop()
         while unspoken_sentences and is_bot_speaking:
             current_speaking_sentence = unspoken_sentences.pop(0)
-            b64_wav = await loop.run_in_executor(gpu_thread_pool, tts.synthesize_wav_base64, current_speaking_sentence)
+            b64_wav = await loop.run_in_executor(tts_thread_pool, tts.synthesize_wav_base64, current_speaking_sentence)
             if b64_wav and is_bot_speaking:
                 await send_json({"type": "audio", "b64": b64_wav})
 
@@ -221,7 +223,7 @@ async def call_websocket(websocket: WebSocket):
         loop = asyncio.get_running_loop()
         while unspoken_sentences and is_bot_speaking:
             current_speaking_sentence = unspoken_sentences.pop(0)
-            b64_wav = await loop.run_in_executor(gpu_thread_pool, tts.synthesize_wav_base64, current_speaking_sentence)
+            b64_wav = await loop.run_in_executor(tts_thread_pool, tts.synthesize_wav_base64, current_speaking_sentence)
             if b64_wav and is_bot_speaking:
                 await send_json({"type": "audio", "b64": b64_wav})
 
@@ -275,7 +277,7 @@ async def call_websocket(websocket: WebSocket):
             return
 
         loop = asyncio.get_running_loop()
-        raw_text = await loop.run_in_executor(gpu_thread_pool, stt.transcribe, audio_np)
+        raw_text = await loop.run_in_executor(stt_thread_pool, stt.transcribe, audio_np)
         user_text = raw_text.strip()
 
         # 1. Check if unvoiced noise, cough, breath, or acoustic artifact
