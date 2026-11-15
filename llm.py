@@ -394,7 +394,8 @@ async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on
                 calendar_service.check_calendar_slots,
                 t_in.get("clinician", "Dr. Yousuf"),
                 target_date,
-                raw_pref or "any"
+                raw_pref or "any",
+                caller_phone
             )
         elif t_name == "book_calendar_slot":
             target_date = resolve_agreed_date(t_in, working_messages)
@@ -406,7 +407,8 @@ async def execute_turn(messages: list, system_prompt: str, caller_phone: str, on
                     calendar_service.check_calendar_slots,
                     clinician,
                     target_date,
-                    "any"
+                    "any",
+                    caller_phone
                 )
                 if check_res.get("available") and check_res.get("suggested_slots_to_quote"):
                     res = {

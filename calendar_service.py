@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import threading
 from datetime import datetime, timedelta
 from config import DUBLIN_TZ, GOOGLE_CALENDAR_ID, SERVICE_ACCOUNT_FILE, CLINICIANS, ALL_DAILY_SLOTS
@@ -16,6 +17,95 @@ _local_bookings_lock = threading.Lock()
 _cached_creds = None
 _creds_lock = threading.Lock()
 _thread_local = threading.local()
+
+# Soft-hold lease table to prevent thundering-herd collisions when multiple callers ask for earliest availability at once:
+# Maps (clinician, date_str, slot_time) -> (caller_id, expires_at_monotonic)
+HOLD_TTL_SEC = 45.0
+_pending_slot_holds = {}
+_holds_lock = threading.Lock()
+_auto_hold_counter = 0
+
+# Short-TTL cache for Google Calendar events().list() range queries to avoid redundant HTTP calls during bursts:
+# Maps (time_min_iso, time_max_iso) -> (expires_at_monotonic, items_list)
+GCAL_CACHE_TTL_SEC = 5.0
+_gcal_events_cache = {}
+_gcal_cache_lock = threading.Lock()
+
+
+def _get_held_slots_for_others(clinician: str, date_str: str, caller_phone: str = "") -> set:
+    """Returns slots on (clinician, date_str) currently soft-held by other concurrent callers."""
+    now_mono = time.monotonic()
+    held = set()
+    with _holds_lock:
+        expired_keys = [k for k, (_, exp) in _pending_slot_holds.items() if exp <= now_mono]
+        for k in expired_keys:
+            del _pending_slot_holds[k]
+        for (c, d, s), (holder, exp) in _pending_slot_holds.items():
+            if c == clinician and d == date_str and exp > now_mono:
+                if not caller_phone or holder != caller_phone:
+                    held.add(s)
+    return held
+
+
+def _acquire_slot_hold(clinician: str, date_str: str, slot_time: str, caller_phone: str = ""):
+    """Places a temporary 45s soft-hold on (clinician, date_str, slot_time) for this caller."""
+    global _auto_hold_counter
+    if not slot_time:
+        return
+    now_mono = time.monotonic()
+    with _holds_lock:
+        if not caller_phone:
+            _auto_hold_counter += 1
+            holder_id = f"anon_{_auto_hold_counter}"
+        else:
+            holder_id = caller_phone
+            # Release any previous soft-hold held by this same caller so they only hold 1 slot at a time
+            old_keys = [k for k, (h, _) in _pending_slot_holds.items() if h == holder_id]
+            for k in old_keys:
+                del _pending_slot_holds[k]
+        _pending_slot_holds[(clinician, date_str, slot_time)] = (holder_id, now_mono + HOLD_TTL_SEC)
+
+
+def _release_slot_hold(clinician: str, date_str: str, slot_time: str, caller_phone: str = ""):
+    """Releases a soft-hold once booked."""
+    with _holds_lock:
+        _pending_slot_holds.pop((clinician, date_str, slot_time), None)
+        if caller_phone:
+            old_keys = [k for k, (h, _) in _pending_slot_holds.items() if h == caller_phone]
+            for k in old_keys:
+                del _pending_slot_holds[k]
+
+
+def _fetch_gcal_events_cached(time_min_iso: str, time_max_iso: str, max_results: int = 2500) -> list:
+    """Fetches Google Calendar events for [time_min_iso, time_max_iso] with a 5-second in-memory cache."""
+    now_mono = time.monotonic()
+    cache_key = (time_min_iso, time_max_iso)
+    with _gcal_cache_lock:
+        entry = _gcal_events_cache.get(cache_key)
+        if entry and entry[0] > now_mono:
+            return entry[1]
+
+    service = get_gcal_service()
+    if not service:
+        return []
+
+    try:
+        events_result = service.events().list(
+            calendarId=GOOGLE_CALENDAR_ID,
+            timeMin=time_min_iso,
+            timeMax=time_max_iso,
+            singleEvents=True,
+            orderBy="startTime",
+            maxResults=max_results
+        ).execute()
+        items = events_result.get("items", [])
+        with _gcal_cache_lock:
+            _gcal_events_cache[cache_key] = (time.monotonic() + GCAL_CACHE_TTL_SEC, items)
+        return items
+    except Exception as e:
+        _thread_local.service = None
+        print(f"[GCal Query Error]: {e}", flush=True)
+        return []
 
 def get_creds():
     """Thread-safe cached credentials loader."""
@@ -52,70 +142,60 @@ def get_gcal_service():
 
 def list_booked_slots_for_date(clinician: str, date_str: str) -> list:
     booked = set()
-    service = get_gcal_service()
-    if service:
-        try:
-            # Query window from 00:00 to 23:59 to cover all daily appointments and all-day blocks
-            day_start = datetime.strptime(date_str, "%Y-%m-%d").replace(hour=0, minute=0, second=0, tzinfo=DUBLIN_TZ)
-            day_end = datetime.strptime(date_str, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=DUBLIN_TZ)
-            events_result = service.events().list(
-                calendarId=GOOGLE_CALENDAR_ID,
-                timeMin=day_start.isoformat(),
-                timeMax=day_end.isoformat(),
-                singleEvents=True,
-                orderBy="startTime",
-                maxResults=250
-            ).execute()
-            
-            clinician_lower = clinician.lower()
-            clinician_keywords = [clinician_lower, f"[{clinician_lower}]"]
-            if "nurse" in clinician_lower:
-                clinician_keywords.extend(["nurse kelly", "kelly", "nurse appointment", "nurse"])
-            elif "dentist" in clinician_lower or "shailaja" in clinician_lower:
-                clinician_keywords.extend(["dentist shailaja", "shailaja", "dental"])
-            elif "yousuf" in clinician_lower or "dr" in clinician_lower:
-                clinician_keywords.extend(["dr. yousuf", "yousuf", "dr yousuf", "routine gp", "gp"])
+    try:
+        # Query window from 00:00 to 23:59 to cover all daily appointments and all-day blocks
+        day_start = datetime.strptime(date_str, "%Y-%m-%d").replace(hour=0, minute=0, second=0, tzinfo=DUBLIN_TZ)
+        day_end = datetime.strptime(date_str, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=DUBLIN_TZ)
+        items = _fetch_gcal_events_cached(day_start.isoformat(), day_end.isoformat(), max_results=250)
 
-            for ev in events_result.get("items", []):
-                summary = ev.get("summary", "").lower()
-                desc = ev.get("description", "").lower()
-                combined = f"{summary} {desc}"
+        clinician_lower = clinician.lower()
+        clinician_keywords = [clinician_lower, f"[{clinician_lower}]"]
+        if "nurse" in clinician_lower:
+            clinician_keywords.extend(["nurse kelly", "kelly", "nurse appointment", "nurse"])
+        elif "dentist" in clinician_lower or "shailaja" in clinician_lower:
+            clinician_keywords.extend(["dentist shailaja", "shailaja", "dental"])
+        elif "yousuf" in clinician_lower or "dr" in clinician_lower:
+            clinician_keywords.extend(["dr. yousuf", "yousuf", "dr yousuf", "routine gp", "gp"])
 
-                is_clinician = any(k in combined for k in clinician_keywords)
-                is_clinic_wide = any(k in summary for k in ("closed", "holiday", "all staff", "unavailable", "out of office", "maintenance"))
+        for ev in items:
+            summary = ev.get("summary", "").lower()
+            desc = ev.get("description", "").lower()
+            combined = f"{summary} {desc}"
 
-                if is_clinician or is_clinic_wide:
-                    start_data = ev.get("start", {})
-                    end_data = ev.get("end", {})
+            is_clinician = any(k in combined for k in clinician_keywords)
+            is_clinic_wide = any(k in summary for k in ("closed", "holiday", "all staff", "unavailable", "out of office", "maintenance"))
 
-                    # 1. All-Day Event (e.g. date: "2026-11-17")
-                    if "date" in start_data and not start_data.get("dateTime"):
-                        ev_start = start_data["date"]
-                        ev_end = end_data.get("date", ev_start)
-                        if ev_start <= date_str < ev_end or ev_start == date_str:
-                            for s in ALL_DAILY_SLOTS:
-                                booked.add(s)
+            if is_clinician or is_clinic_wide:
+                start_data = ev.get("start", {})
+                end_data = ev.get("end", {})
 
-                    # 2. Timed Event (e.g. dateTime: "2026-11-17T09:30:00+00:00")
-                    elif "dateTime" in start_data:
-                        start_iso = start_data["dateTime"]
-                        end_iso = end_data.get("dateTime")
-                        if "T" in start_iso:
-                            dt_start = datetime.fromisoformat(start_iso).astimezone(DUBLIN_TZ)
-                            if end_iso and "T" in end_iso:
-                                dt_end = datetime.fromisoformat(end_iso).astimezone(DUBLIN_TZ)
-                            else:
-                                dt_end = dt_start + timedelta(minutes=15)
+                # 1. All-Day Event (e.g. date: "2026-11-17")
+                if "date" in start_data and not start_data.get("dateTime"):
+                    ev_start = start_data["date"]
+                    ev_end = end_data.get("date", ev_start)
+                    if ev_start <= date_str < ev_end or ev_start == date_str:
+                        for s in ALL_DAILY_SLOTS:
+                            booked.add(s)
 
-                            # Block all 15-minute slots spanned by this appointment or block
-                            curr = dt_start
-                            while curr < dt_end:
-                                if curr.strftime("%Y-%m-%d") == date_str:
-                                    booked.add(curr.strftime("%H:%M"))
-                                curr += timedelta(minutes=15)
-        except Exception as e:
-            _thread_local.service = None
-            print(f"[GCal Query Error]: {e}", flush=True)
+                # 2. Timed Event (e.g. dateTime: "2026-11-17T09:30:00+00:00")
+                elif "dateTime" in start_data:
+                    start_iso = start_data["dateTime"]
+                    end_iso = end_data.get("dateTime")
+                    if "T" in start_iso:
+                        dt_start = datetime.fromisoformat(start_iso).astimezone(DUBLIN_TZ)
+                        if end_iso and "T" in end_iso:
+                            dt_end = datetime.fromisoformat(end_iso).astimezone(DUBLIN_TZ)
+                        else:
+                            dt_end = dt_start + timedelta(minutes=15)
+
+                        # Block all 15-minute slots spanned by this appointment or block
+                        curr = dt_start
+                        while curr < dt_end:
+                            if curr.strftime("%Y-%m-%d") == date_str:
+                                booked.add(curr.strftime("%H:%M"))
+                            curr += timedelta(minutes=15)
+    except Exception as e:
+        print(f"[GCal Parse Error]: {e}", flush=True)
 
     with _local_bookings_lock:
         for b in LOCAL_BOOKINGS:
@@ -125,9 +205,9 @@ def list_booked_slots_for_date(clinician: str, date_str: str) -> list:
     return sorted(list(booked))
 
 
-def find_next_available_day_slots(clinician: str, start_dt: datetime, max_days: int = 21) -> tuple:
-    """Scans up to `max_days` forward from `start_dt` in a single Google Calendar range query
-    to find the earliest open clinic day (Mon-Sat) that has at least one free slot.
+def find_next_available_day_slots(clinician: str, start_dt: datetime, max_days: int = 21, caller_phone: str = "") -> tuple:
+    """Scans up to `max_days` forward from `start_dt` in a single cached Google Calendar range query
+    to find the earliest open clinic day (Mon-Sat) that has at least one free, unheld slot.
     Returns (date_iso, free_slots_list) or (None, []).
     """
     now_dublin = datetime.now(DUBLIN_TZ)
@@ -146,70 +226,60 @@ def find_next_available_day_slots(clinician: str, start_dt: datetime, max_days: 
         return None, []
 
     booked_by_date = {d_iso: set() for d_iso in candidate_dates}
-    service = get_gcal_service()
-    if service:
-        try:
-            range_start = datetime.strptime(candidate_dates[0], "%Y-%m-%d").replace(
-                hour=0, minute=0, second=0, tzinfo=DUBLIN_TZ
-            )
-            range_end = datetime.strptime(candidate_dates[-1], "%Y-%m-%d").replace(
-                hour=23, minute=59, second=59, tzinfo=DUBLIN_TZ
-            )
-            events_result = service.events().list(
-                calendarId=GOOGLE_CALENDAR_ID,
-                timeMin=range_start.isoformat(),
-                timeMax=range_end.isoformat(),
-                singleEvents=True,
-                orderBy="startTime",
-                maxResults=2500
-            ).execute()
+    try:
+        range_start = datetime.strptime(candidate_dates[0], "%Y-%m-%d").replace(
+            hour=0, minute=0, second=0, tzinfo=DUBLIN_TZ
+        )
+        range_end = datetime.strptime(candidate_dates[-1], "%Y-%m-%d").replace(
+            hour=23, minute=59, second=59, tzinfo=DUBLIN_TZ
+        )
+        items = _fetch_gcal_events_cached(range_start.isoformat(), range_end.isoformat(), max_results=2500)
 
-            clinician_lower = clinician.lower()
-            clinician_keywords = [clinician_lower, f"[{clinician_lower}]"]
-            if "nurse" in clinician_lower:
-                clinician_keywords.extend(["nurse kelly", "kelly", "nurse appointment", "nurse"])
-            elif "dentist" in clinician_lower or "shailaja" in clinician_lower:
-                clinician_keywords.extend(["dentist shailaja", "shailaja", "dental"])
-            elif "yousuf" in clinician_lower or "dr" in clinician_lower:
-                clinician_keywords.extend(["dr. yousuf", "yousuf", "dr yousuf", "routine gp", "gp"])
+        clinician_lower = clinician.lower()
+        clinician_keywords = [clinician_lower, f"[{clinician_lower}]"]
+        if "nurse" in clinician_lower:
+            clinician_keywords.extend(["nurse kelly", "kelly", "nurse appointment", "nurse"])
+        elif "dentist" in clinician_lower or "shailaja" in clinician_lower:
+            clinician_keywords.extend(["dentist shailaja", "shailaja", "dental"])
+        elif "yousuf" in clinician_lower or "dr" in clinician_lower:
+            clinician_keywords.extend(["dr. yousuf", "yousuf", "dr yousuf", "routine gp", "gp"])
 
-            for ev in events_result.get("items", []):
-                summary = ev.get("summary", "").lower()
-                desc = ev.get("description", "").lower()
-                combined = f"{summary} {desc}"
+        for ev in items:
+            summary = ev.get("summary", "").lower()
+            desc = ev.get("description", "").lower()
+            combined = f"{summary} {desc}"
 
-                is_clinician = any(k in combined for k in clinician_keywords)
-                is_clinic_wide = any(k in summary for k in ("closed", "holiday", "all staff", "unavailable", "out of office", "maintenance"))
+            is_clinician = any(k in combined for k in clinician_keywords)
+            is_clinic_wide = any(k in summary for k in ("closed", "holiday", "all staff", "unavailable", "out of office", "maintenance"))
 
-                if is_clinician or is_clinic_wide:
-                    start_data = ev.get("start", {})
-                    end_data = ev.get("end", {})
+            if is_clinician or is_clinic_wide:
+                start_data = ev.get("start", {})
+                end_data = ev.get("end", {})
 
-                    if "date" in start_data and not start_data.get("dateTime"):
-                        ev_start = start_data["date"]
-                        ev_end = end_data.get("date", ev_start)
-                        for d_iso in candidate_dates:
-                            if ev_start <= d_iso < ev_end or ev_start == d_iso:
-                                booked_by_date[d_iso].update(ALL_DAILY_SLOTS)
-                    elif "dateTime" in start_data:
-                        start_iso = start_data["dateTime"]
-                        end_iso = end_data.get("dateTime")
-                        if "T" in start_iso:
-                            dt_start = datetime.fromisoformat(start_iso).astimezone(DUBLIN_TZ)
-                            if end_iso and "T" in end_iso:
-                                dt_end = datetime.fromisoformat(end_iso).astimezone(DUBLIN_TZ)
-                            else:
-                                dt_end = dt_start + timedelta(minutes=15)
+                if "date" in start_data and not start_data.get("dateTime"):
+                    ev_start = start_data["date"]
+                    ev_end = end_data.get("date", ev_start)
+                    for d_iso in candidate_dates:
+                        if ev_start <= d_iso < ev_end or ev_start == d_iso:
+                            booked_by_date[d_iso].update(ALL_DAILY_SLOTS)
+                elif "dateTime" in start_data:
+                    start_iso = start_data["dateTime"]
+                    end_iso = end_data.get("dateTime")
+                    if "T" in start_iso:
+                        dt_start = datetime.fromisoformat(start_iso).astimezone(DUBLIN_TZ)
+                        if end_iso and "T" in end_iso:
+                            dt_end = datetime.fromisoformat(end_iso).astimezone(DUBLIN_TZ)
+                        else:
+                            dt_end = dt_start + timedelta(minutes=15)
 
-                            curr = dt_start
-                            while curr < dt_end:
-                                d_key = curr.strftime("%Y-%m-%d")
-                                if d_key in booked_by_date:
-                                    booked_by_date[d_key].add(curr.strftime("%H:%M"))
-                                curr += timedelta(minutes=15)
-        except Exception as e:
-            _thread_local.service = None
-            print(f"[GCal Range Query Error]: {e}", flush=True)
+                        curr = dt_start
+                        while curr < dt_end:
+                            d_key = curr.strftime("%Y-%m-%d")
+                            if d_key in booked_by_date:
+                                booked_by_date[d_key].add(curr.strftime("%H:%M"))
+                            curr += timedelta(minutes=15)
+    except Exception as e:
+        print(f"[GCal Range Parse Error]: {e}", flush=True)
 
     with _local_bookings_lock:
         for b in LOCAL_BOOKINGS:
@@ -217,15 +287,23 @@ def find_next_available_day_slots(clinician: str, start_dt: datetime, max_days: 
             if b.get("clinician") == clinician and b_date in booked_by_date:
                 booked_by_date[b_date].add(b["slot_time"])
 
+    fallback_day = None
+    fallback_slots = []
     for d_iso in candidate_dates:
         booked_set = booked_by_date[d_iso]
         free = [s for s in ALL_DAILY_SLOTS if s not in booked_set]
         if d_iso == today_iso:
             free = [s for s in free if s >= cutoff_str]
-        if free:
-            return d_iso, free
+        if not free:
+            continue
+        if fallback_day is None:
+            fallback_day, fallback_slots = d_iso, free
+        held_by_others = _get_held_slots_for_others(clinician, d_iso, caller_phone)
+        unheld_free = [s for s in free if s not in held_by_others]
+        if unheld_free:
+            return d_iso, unheld_free
 
-    return None, []
+    return fallback_day, fallback_slots
 
 def parse_time_preference(pref: str):
     """Extracts a target slot HH:MM from strings like '10:30', '10.30', '11.45 am', '10am', '2pm', '10'."""
@@ -382,7 +460,7 @@ def parse_date_preference(text: str, base_dt: datetime = None) -> str:
 
     return None
 
-def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "any") -> dict:
+def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "any", caller_phone: str = "") -> dict:
     try:
         query_date = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=DUBLIN_TZ)
     except ValueError:
@@ -398,7 +476,7 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
     # 1. Past dates or Sundays: automatically scan forward to the next open day with free slots
     if query_date.date() < now_dublin.date() or query_date.weekday() == 6:
         scan_start = (now_dublin - timedelta(days=1)) if query_date.date() < now_dublin.date() else query_date
-        next_date_iso, free_slots = find_next_available_day_slots(clinician, scan_start, max_days=21)
+        next_date_iso, free_slots = find_next_available_day_slots(clinician, scan_start, max_days=21, caller_phone=caller_phone)
         if not next_date_iso:
             return {
                 "status": "error",
@@ -428,9 +506,17 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
             cutoff_str = cutoff_dt.strftime("%H:%M")
             free_slots = [s for s in free_slots if s >= cutoff_str]
 
+        # Exclude slots currently soft-held by other concurrent callers so we don't offer the same slot to 20 callers at once
+        held_by_others = _get_held_slots_for_others(clinician, date_str, caller_phone)
+        unheld_free = [s for s in free_slots if s not in held_by_others]
+        if unheld_free:
+            free_slots = unheld_free
+        else:
+            free_slots = []
+
         # Automatically scan forward to the next available date with free slots instead of looping day-by-day
         if not free_slots:
-            next_date_iso, next_free_slots = find_next_available_day_slots(clinician, query_date, max_days=21)
+            next_date_iso, next_free_slots = find_next_available_day_slots(clinician, query_date, max_days=21, caller_phone=caller_phone)
             if not next_date_iso:
                 return {
                     "status": "error",
@@ -537,6 +623,10 @@ def check_calendar_slots(clinician: str, date_str: str, time_preference: str = "
             f"Would you like me to book {first_spoken} on {formatted_date} for you?'"
         )
 
+    # Place a 45-second soft-hold on the primary recommended slot so concurrent callers are offered distinct slots
+    if suggested:
+        _acquire_slot_hold(clinician, date_str, suggested[0], caller_phone)
+
     return {
         "status": "success",
         "available": True,
@@ -569,10 +659,11 @@ def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_na
     # Check if slot is in the past
     now_dublin = datetime.now(DUBLIN_TZ)
     if appt_dt < now_dublin:
-        next_date_iso, next_free = find_next_available_day_slots(clinician, now_dublin, max_days=21)
+        next_date_iso, next_free = find_next_available_day_slots(clinician, now_dublin, max_days=21, caller_phone=caller_phone)
         if next_date_iso and next_free:
             next_fmt = format_human_date(next_date_iso)
             first_slot = next_free[0]
+            _acquire_slot_hold(clinician, next_date_iso, first_slot, caller_phone)
             first_spoken = format_spoken_time(first_slot)
             return {
                 "success": False,
@@ -590,13 +681,44 @@ def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_na
             "instruction": f"Tell the caller: 'I apologize, but {format_spoken_time(slot_time)} on {format_human_date(date_str)} has already passed. Would you like me to book an appointment for tomorrow ({tomorrow_fmt}) instead?'"
         }
 
-    booked = list_booked_slots_for_date(clinician, date_str)
-    if slot_time in booked:
+    booked = set(list_booked_slots_for_date(clinician, date_str))
+    formatted_date = format_human_date(date_str)
+    spoken_time = format_spoken_time(slot_time)
+
+    # Atomically check and reserve the slot in LOCAL_BOOKINGS before the network insert call
+    slot_taken = False
+    record = {
+        "clinician": clinician,
+        "date": date_str,
+        "formatted_date": formatted_date,
+        "slot_time": slot_time,
+        "spoken_time": spoken_time,
+        "patient_name": patient_name,
+        "patient_dob": patient_dob,
+        "phone": caller_phone,
+        "category": appointment_category,
+        "sync_status": "Local Staging Queue"
+    }
+    with _local_bookings_lock:
+        for b in LOCAL_BOOKINGS:
+            if b["clinician"] == clinician and b["date"] == date_str:
+                booked.add(b["slot_time"])
+        if slot_time in booked:
+            slot_taken = True
+        else:
+            LOCAL_BOOKINGS.append(record)
+
+    if slot_taken:
         today_iso = now_dublin.strftime("%Y-%m-%d")
         cutoff_str = now_dublin.strftime("%H:%M")
-        all_open = [s for s in ALL_DAILY_SLOTS if s not in booked and (date_str != today_iso or s >= cutoff_str)]
+        held_by_others = _get_held_slots_for_others(clinician, date_str, caller_phone)
+        all_open = [
+            s for s in ALL_DAILY_SLOTS
+            if s not in booked and s not in held_by_others and (date_str != today_iso or s >= cutoff_str)
+        ]
         suggested = all_open[:3]
         if suggested:
+            _acquire_slot_hold(clinician, date_str, suggested[0], caller_phone)
             first_spoken = format_spoken_time(suggested[0])
             other_spoken = ", ".join(format_spoken_time(s) for s in suggested[1:])
             other_clause = f", or {other_spoken}" if other_spoken else ""
@@ -609,10 +731,11 @@ def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_na
                 "instruction": f"Tell the caller: 'I apologize, but {format_spoken_time(slot_time)} was just taken. However, I have {first_spoken}{other_clause} open on {format_human_date(date_str)}. Would you like me to book {first_spoken} for you?'"
             }
         else:
-            next_date_iso, next_free = find_next_available_day_slots(clinician, appt_dt, max_days=21)
+            next_date_iso, next_free = find_next_available_day_slots(clinician, appt_dt, max_days=21, caller_phone=caller_phone)
             if next_date_iso and next_free:
                 next_fmt = format_human_date(next_date_iso)
                 next_suggested = next_free[:3]
+                _acquire_slot_hold(clinician, next_date_iso, next_suggested[0], caller_phone)
                 first_spoken = format_spoken_time(next_suggested[0])
                 return {
                     "success": False,
@@ -631,6 +754,8 @@ def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_na
                 "instruction": f"Tell the caller: 'I apologize, but {format_spoken_time(slot_time)} was just taken and all other appointments for {format_human_date(date_str)} are full.'"
             }
 
+    _release_slot_hold(clinician, date_str, slot_time, caller_phone)
+
     start_dt = appt_dt
     end_dt = start_dt + timedelta(minutes=15)
 
@@ -639,7 +764,6 @@ def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_na
         f"Patient: {patient_name}\nDOB: {patient_dob}\nPhone: {caller_phone}\nCategory: {appointment_category}\nStatus: Provisional AI Booking"
     )
 
-    sync_status = "Local Staging Queue"
     service = get_gcal_service()
     if service:
         try:
@@ -651,28 +775,12 @@ def book_calendar_slot(clinician: str, date_str: str, slot_time: str, patient_na
                 "end": {"dateTime": end_dt.isoformat(), "timeZone": "Europe/Dublin"},
             }
             created = service.events().insert(calendarId=GOOGLE_CALENDAR_ID, body=event_body).execute()
-            sync_status = created.get("htmlLink", "Live Google Calendar")
-            print(f"[GCAL EVENT CREATED]: {sync_status}", flush=True)
+            record["sync_status"] = created.get("htmlLink", "Live Google Calendar")
+            print(f"[GCAL EVENT CREATED]: {record['sync_status']}", flush=True)
         except Exception as e:
             _thread_local.service = None
-            sync_status = f"Local Queue (GCal error: {str(e)[:30]})"
+            record["sync_status"] = f"Local Queue (GCal error: {str(e)[:30]})"
 
-    formatted_date = format_human_date(date_str)
-    spoken_time = format_spoken_time(slot_time)
-    record = {
-        "clinician": clinician,
-        "date": date_str,
-        "formatted_date": formatted_date,
-        "slot_time": slot_time,
-        "spoken_time": spoken_time,
-        "patient_name": patient_name,
-        "patient_dob": patient_dob,
-        "phone": caller_phone,
-        "category": appointment_category,
-        "sync_status": sync_status
-    }
-    with _local_bookings_lock:
-        LOCAL_BOOKINGS.append(record)
     return {
         "success": True,
         "booking": record,

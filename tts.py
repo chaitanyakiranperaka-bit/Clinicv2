@@ -1,14 +1,24 @@
 import io
 import re
+import queue
 import base64
 import threading
+from collections import OrderedDict
 import numpy as np
 import soundfile as sf
+import torch
 from kokoro import KPipeline
 
-print("[INIT TTS] Loading Kokoro-82M (bf_isabella)...", flush=True)
-tts_pipeline = KPipeline(lang_code="b")
-tts_lock = threading.Lock()
+TTS_WORKER_COUNT = 3 if torch.cuda.is_available() else 1
+print(f"[INIT TTS] Loading {TTS_WORKER_COUNT}x Kokoro-82M (bf_isabella) workers...", flush=True)
+
+_tts_pool = queue.Queue()
+for _ in range(TTS_WORKER_COUNT):
+    _tts_pool.put(KPipeline(lang_code="b"))
+
+_TTS_CACHE_MAX = 512
+_tts_cache = OrderedDict()
+_tts_cache_lock = threading.Lock()
 
 EMOJI_PATTERN = re.compile(
     "["
@@ -60,21 +70,37 @@ def synthesize_wav_base64(text: str) -> str:
     clean = re.sub(r"\s+", " ", clean).strip()
     if not clean:
         return ""
+
+    # 1. Fast in-memory cache lookup (0ms for greetings, closings, and repeated prompts)
+    with _tts_cache_lock:
+        cached = _tts_cache.get(clean)
+        if cached is not None:
+            _tts_cache.move_to_end(clean)
+            return cached
+
+    # 2. Parallel synthesis using pooled Kokoro worker
+    pipeline = _tts_pool.get()
     try:
-        with tts_lock:
-            generator = tts_pipeline(clean, voice="bf_isabella", speed=1.0)
-            chunks = [audio for _, _, audio in generator]
+        generator = pipeline(clean, voice="bf_isabella", speed=1.0)
+        chunks = [audio for _, _, audio in generator]
         if not chunks:
             return ""
         combined = np.concatenate(chunks)
         buf = io.BytesIO()
         sf.write(buf, combined, 24000, format="WAV")
-        return base64.b64encode(buf.getvalue()).decode("utf-8")
+        b64_out = base64.b64encode(buf.getvalue()).decode("utf-8")
+        with _tts_cache_lock:
+            _tts_cache[clean] = b64_out
+            if len(_tts_cache) > _TTS_CACHE_MAX:
+                _tts_cache.popitem(last=False)
+        return b64_out
     except Exception as e:
         print(f"[TTS Error]: {e}", flush=True)
         return ""
+    finally:
+        _tts_pool.put(pipeline)
 
-# Polite conversational filler sentences pre-synthesized at startup for zero-latency playback
+# Polite conversational filler and common greeting/closing sentences pre-synthesized at startup for zero-latency playback
 CHECK_FILLERS = []
 BOOK_FILLERS = []
 _filler_idx = 0
@@ -87,6 +113,15 @@ try:
     BOOK_FILLERS = [
         (synthesize_wav_base64("Just one moment please while I confirm that booking for you."), "Just one moment please while I confirm that booking for you.")
     ]
+    # Pre-warm static greeting and closing sentences into _tts_cache
+    for _warm_sentence in (
+        "Hello, welcome to Star Dental and GP Clinic in Clonsilla.",
+        "You are speaking with Deirdre, the clinic's automated AI receptionist.",
+        "How can I help you today?",
+        "Is there anything else I can help you with today?",
+        "This sounds like an emergency. Please hang up immediately and dial 999 or 112 for an ambulance.",
+    ):
+        synthesize_wav_base64(_warm_sentence)
 except Exception as e:
     print(f"[WARN] Failed to pre-synthesize filler audio: {e}", flush=True)
 
