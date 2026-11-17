@@ -2,7 +2,7 @@
 """
 Configures LiveKit Inbound SIP Trunk & Dispatch Rule for VoIPLine.ie.
 Usage:
-    python livekit_setup/setup_sip_trunk.py --phone +3531XXXXXXX
+    python livekit_setup/setup_sip_trunk.py --phone +35317267740
 """
 import argparse
 import asyncio
@@ -53,17 +53,17 @@ async def configure_voipline_sip(phone: str, auth_user: str = "", auth_pass: str
         numbers = _phone_variants(phone)
         print(f"[1/3] Cleaning up any old clinic SIP trunks & dispatch rules on {lk_http_url}...")
 
-        existing_rules = await lkapi.sip.list_sip_dispatch_rule(api.ListSIPDispatchRuleRequest())
+        existing_rules = await lkapi.sip.list_dispatch_rule(api.ListSIPDispatchRuleRequest())
         for r in existing_rules.items:
             if r.name == "star-clinic-deirdre-dispatch":
-                await lkapi.sip.delete_sip_dispatch_rule(
+                await lkapi.sip.delete_dispatch_rule(
                     api.DeleteSIPDispatchRuleRequest(sip_dispatch_rule_id=r.sip_dispatch_rule_id)
                 )
 
-        existing_trunks = await lkapi.sip.list_sip_inbound_trunk(api.ListSIPInboundTrunkRequest())
+        existing_trunks = await lkapi.sip.list_inbound_trunk(api.ListSIPInboundTrunkRequest())
         for t in existing_trunks.items:
             if t.name == "voipline-ie-inbound":
-                await lkapi.sip.delete_sip_trunk(
+                await lkapi.sip.delete_trunk(
                     api.DeleteSIPTrunkRequest(sip_trunk_id=t.sip_trunk_id)
                 )
 
@@ -75,24 +75,22 @@ async def configure_voipline_sip(phone: str, auth_user: str = "", auth_pass: str
             auth_password=auth_pass or "",
             krisp_enabled=False,
         )
-        trunk = await lkapi.sip.create_sip_inbound_trunk(
+        trunk = await lkapi.sip.create_inbound_trunk(
             api.CreateSIPInboundTrunkRequest(trunk=trunk_info)
         )
         print(f"  ✓ Created Inbound Trunk ID: {trunk.sip_trunk_id}")
 
         print("[3/3] Creating SIP Dispatch Rule (routes each caller into room 'sip-<caller>')...")
-        rule_info = api.SIPDispatchRuleInfo(
+        dispatch_req = api.CreateSIPDispatchRuleRequest(
             name="star-clinic-deirdre-dispatch",
+            trunk_ids=[trunk.sip_trunk_id],
             rule=api.SIPDispatchRule(
                 dispatch_rule_individual=api.SIPDispatchRuleIndividual(
                     room_prefix="sip-",
                 )
             ),
-            trunk_ids=[trunk.sip_trunk_id],
         )
-        dispatch = await lkapi.sip.create_sip_dispatch_rule(
-            api.CreateSIPDispatchRuleRequest(rule=rule_info)
-        )
+        dispatch = await lkapi.sip.create_dispatch_rule(dispatch_req)
         print(f"  ✓ Created Dispatch Rule ID: {dispatch.sip_dispatch_rule_id}")
 
         pub_ip = _get_public_ip()
@@ -114,7 +112,7 @@ async def configure_voipline_sip(phone: str, auth_user: str = "", auth_pass: str
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Register VoIPLine.ie Inbound SIP Trunk in LiveKit")
-    parser.add_argument("--phone", required=True, help="VoIPLine.ie phone number (e.g. +3531XXXXXXX or 01XXXXXXX)")
+    parser.add_argument("--phone", required=True, help="VoIPLine.ie phone number (e.g. +35317267740 or 017267740)")
     parser.add_argument("--auth-user", default="", help="Optional SIP auth username")
     parser.add_argument("--auth-pass", default="", help="Optional SIP auth password")
     args = parser.parse_args()
