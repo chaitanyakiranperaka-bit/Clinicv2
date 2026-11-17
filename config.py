@@ -328,7 +328,7 @@ def build_system_prompt(caller_phone: str) -> str:
     caller_ctx = (
         f"Caller is verified enrolled patient '{matched['name']}' (DOB: {matched['dob']}). When they select or agree to a slot, immediately execute book_calendar_slot using their enrolled details."
         if matched else
-        f"Caller ID {caller_phone} is new. Ask for Full Name and DOB before booking."
+        f"Caller ID {caller_phone} is a new patient. Always call check_calendar_slots FIRST to check availability and quote the earliest open slot, then ask for their Full Name and Date of Birth before calling book_calendar_slot."
     )
 
     return (

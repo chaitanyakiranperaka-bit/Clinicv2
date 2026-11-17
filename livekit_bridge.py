@@ -1,7 +1,9 @@
 import asyncio
+import logging
+import os
 import time
 from collections import deque
-from typing import Dict, Set, Optional, Callable
+from typing import Dict, Optional, Callable
 import numpy as np
 import torch
 from silero_vad import load_silero_vad
@@ -17,6 +19,9 @@ from config import (
 import stt
 import tts
 import llm
+
+os.environ.setdefault("LIVEKIT_RTC_LOG_LEVEL", "error")
+logging.getLogger("livekit").setLevel(logging.ERROR)
 
 try:
     from livekit import rtc, api
@@ -45,13 +50,12 @@ def _extract_caller_phone(room_name: str, participant) -> str:
                 return normalize_phone(val)
         identity = getattr(participant, "identity", "") or ""
         if identity and not identity.startswith("deirdre"):
-            # e.g. "sip_+353871234567" or "+353871234567"
-            cleaned_id = identity.replace("sip_", "").replace("sip:", "")
+            cleaned_id = identity.replace("sip_", "").replace("sip:", "").lstrip("_")
             if any(ch.isdigit() for ch in cleaned_id):
                 return normalize_phone(cleaned_id)
 
-    # Fallback: parse from room name if formatted like "sip-+353871234567_xxxx" or "call-+353871234567"
-    for prefix in ("sip-", "sip_", "call-", "call_"):
+    # Fallback: parse from room name if formatted like "sip-_0872917210_xxxx"
+    for prefix in ("sip-_", "sip-", "sip_", "call-", "call_"):
         if room_name.startswith(prefix):
             rest = room_name[len(prefix):].split("_")[0].split("-")[0]
             if any(ch.isdigit() for ch in rest):
@@ -65,10 +69,8 @@ def _resample_to_16k(samples_f32: np.ndarray, src_rate: int) -> np.ndarray:
     if src_rate == 16000 or len(samples_f32) == 0:
         return samples_f32
     if src_rate == 48000:
-        # Exact 3:1 decimation
         return samples_f32[::3]
     if src_rate == 8000:
-        # Exact 1:2 linear interpolation
         out = np.empty(len(samples_f32) * 2, dtype=np.float32)
         out[0::2] = samples_f32
         out[1:-1:2] = 0.5 * (samples_f32[:-1] + samples_f32[1:])
@@ -129,6 +131,7 @@ async def run_sip_room_session(
     is_processing_turn = False
     current_turn_task: Optional[asyncio.Task] = None
     turn_lock = asyncio.Lock()
+    audio_out_lock = asyncio.Lock()
     unspoken_sentences = []
     current_speaking_sentence = None
     bot_speech_start_time = 0.0
@@ -150,32 +153,34 @@ async def run_sip_room_session(
         vad_model = global_vad_model
     vad_model.reset_states()
 
-    # 24kHz mono AudioSource for Kokoro TTS output (200ms queue buffer for crisp barge-in)
-    try:
-        audio_source = rtc.AudioSource(sample_rate=24000, num_channels=1, queue_size_ms=200)
-    except TypeError:
-        audio_source = rtc.AudioSource(24000, 1)
+    # 24kHz mono AudioSource for Kokoro TTS output (standard 1000ms queue prevents InvalidState under load)
+    audio_source = rtc.AudioSource(24000, 1)
 
     async def stream_pcm_to_livekit(pcm_int16: np.ndarray):
-        """Streams 24kHz int16 mono PCM into LiveKit AudioSource in 20ms (480-sample) frames."""
+        """Serializes and streams 24kHz int16 mono PCM into LiveKit AudioSource in 20ms (480-sample) frames."""
         nonlocal is_bot_speaking
         if pcm_int16 is None or len(pcm_int16) == 0:
             return
         frame_samples = 480  # 20ms at 24,000 Hz
         total_samples = len(pcm_int16)
-        idx = 0
-        while idx < total_samples and is_bot_speaking and not disconnect_event.is_set():
-            chunk = pcm_int16[idx:idx + frame_samples]
-            if len(chunk) < frame_samples:
-                chunk = np.pad(chunk, (0, frame_samples - len(chunk)), mode="constant")
-            frame = rtc.AudioFrame(
-                data=chunk.tobytes(),
-                sample_rate=24000,
-                num_channels=1,
-                samples_per_channel=frame_samples,
-            )
-            await audio_source.capture_frame(frame)
-            idx += frame_samples
+        async with audio_out_lock:
+            idx = 0
+            while idx < total_samples and is_bot_speaking and not disconnect_event.is_set():
+                chunk = pcm_int16[idx:idx + frame_samples]
+                if len(chunk) < frame_samples:
+                    chunk = np.pad(chunk, (0, frame_samples - len(chunk)), mode="constant")
+                frame = rtc.AudioFrame(
+                    data=chunk.tobytes(),
+                    sample_rate=24000,
+                    num_channels=1,
+                    samples_per_channel=frame_samples,
+                )
+                try:
+                    await audio_source.capture_frame(frame)
+                except Exception:
+                    # Occurs if caller hangs up or clear_queue() was invoked during barge-in
+                    break
+                idx += frame_samples
 
     async def stop_bot_audio():
         """Immediately halts Deirdre's outgoing audio on caller barge-in."""
@@ -246,7 +251,8 @@ async def run_sip_room_session(
             is_bot_speaking = True
             bot_speech_start_time = time.time()
             await stream_pcm_to_livekit(pcm_24k)
-            is_bot_speaking = False
+            if not unspoken_sentences and current_speaking_sentence is None:
+                is_bot_speaking = False
 
     async def handle_tool_start(tool_name: str, tool_input: dict = None):
         nonlocal filler_sent_this_turn
@@ -261,7 +267,8 @@ async def run_sip_room_session(
 
         if filler_b64:
             filler_sent_this_turn = True
-            await play_filler_b64(filler_b64, filler_text)
+            # Play filler in background serialized via audio_out_lock while Google Calendar API runs
+            asyncio.create_task(play_filler_b64(filler_b64, filler_text))
 
     async def process_user_turn(audio_np: np.ndarray):
         nonlocal is_processing_turn, current_turn_task, unspoken_sentences, current_speaking_sentence, filler_sent_this_turn
@@ -304,19 +311,6 @@ async def run_sip_room_session(
             messages.append({"role": "user", "content": [{"text": user_text}]})
             is_processing_turn = True
             filler_sent_this_turn = False
-
-            lower_user = user_text.lower()
-            scheduling_keywords = (
-                "book", "appointment", "slot", "available", "see ", "dr.", "doctor",
-                "nurse", "dentist", "check", "monday", "tuesday", "wednesday",
-                "thursday", "friday", "morning", "afternoon", "tomorrow", "today", "confirm",
-                "yes", "please", "works"
-            )
-            if any(w in lower_user for w in scheduling_keywords):
-                filler_b64, filler_text = tts.get_check_filler()
-                if filler_b64:
-                    filler_sent_this_turn = True
-                    asyncio.create_task(play_filler_b64(filler_b64, filler_text))
 
             try:
                 reply_text = await llm.execute_turn(
@@ -470,7 +464,6 @@ async def run_sip_room_session(
         options = rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE)
         await room.local_participant.publish_track(track, options)
 
-        # Check if SIP participant is already present in the room when we join
         for participant in room.remote_participants.values():
             if not participant.identity.startswith("deirdre"):
                 for pub in participant.track_publications.values():
