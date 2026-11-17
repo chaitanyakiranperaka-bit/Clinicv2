@@ -5,7 +5,7 @@ import asyncio
 from collections import deque
 import numpy as np
 import torch
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from starlette.websockets import WebSocketDisconnect as StarletteWebSocketDisconnect
 try:
     from starlette.websockets import WebSocketDisconnected
@@ -19,6 +19,7 @@ from config import (
     KNOWN_PATIENTS,
     GOOGLE_CALENDAR_ID,
     BEDROCK_MODEL_ID,
+    LIVEKIT_URL,
     normalize_phone,
     get_known_patient
 )
@@ -26,6 +27,7 @@ import calendar_service
 import stt
 import tts
 import llm
+import livekit_bridge
 from concurrent.futures import ThreadPoolExecutor
 
 app = FastAPI()
@@ -46,6 +48,20 @@ async def startup_event():
         print("[INIT EXECUTOR] Set default I/O pool (128), dedicated STT pool (16), and dedicated TTS pool (16).", flush=True)
     except Exception as e:
         print(f"[WARN] Failed to set ThreadPoolExecutor: {e}", flush=True)
+
+    # Start LiveKit SIP Room Bridge in-process (shares GPU Whisper + Kokoro models)
+    if livekit_bridge.is_livekit_configured():
+        livekit_bridge._poller_task = asyncio.create_task(
+            livekit_bridge.poll_livekit_sip_rooms(
+                stt_thread_pool=stt_thread_pool,
+                tts_thread_pool=tts_thread_pool,
+                vad_pool=_vad_pool,
+                global_vad_model=global_vad_model,
+                split_into_sentences=split_into_sentences,
+                is_noise_or_empty=is_noise_or_empty,
+                is_backchannel=is_backchannel,
+            )
+        )
 
 print("[INIT VAD] Loading Silero VAD pool (CPU)...", flush=True)
 global_vad_model = load_silero_vad()
@@ -140,8 +156,46 @@ async def get_status():
     gcal_active = bool(calendar_service.get_gcal_service())
     return {
         "calendar_badge": f"🟢 Live GCal ({GOOGLE_CALENDAR_ID})" if gcal_active else "🟡 Local Staging Queue",
-        "model_id": BEDROCK_MODEL_ID
+        "model_id": BEDROCK_MODEL_ID,
+        "livekit_sip_enabled": livekit_bridge.is_livekit_configured(),
+        "active_sip_rooms": list(livekit_bridge._active_rooms.keys()),
     }
+
+@app.get("/livekit/status")
+async def get_livekit_status():
+    return {
+        "livekit_sdk_installed": livekit_bridge.LIVEKIT_AVAILABLE,
+        "livekit_configured": livekit_bridge.is_livekit_configured(),
+        "livekit_url": LIVEKIT_URL,
+        "active_sip_rooms": list(livekit_bridge._active_rooms.keys()),
+    }
+
+@app.post("/livekit/webhook")
+async def livekit_webhook(request: Request):
+    """Receives room_started / participant_joined events from LiveKit Server to attach Deirdre immediately."""
+    try:
+        payload = await request.json()
+    except Exception:
+        return {"status": "ignored"}
+
+    event_type = payload.get("event", "")
+    room_obj = payload.get("room") or {}
+    room_name = room_obj.get("name", "")
+
+    if event_type in ("room_started", "participant_joined") and room_name:
+        if room_name.startswith(("sip-", "sip_", "call-", "clinic-")):
+            spawned = livekit_bridge.ensure_room_session(
+                room_name=room_name,
+                stt_thread_pool=stt_thread_pool,
+                tts_thread_pool=tts_thread_pool,
+                vad_pool=_vad_pool,
+                global_vad_model=global_vad_model,
+                split_into_sentences=split_into_sentences,
+                is_noise_or_empty=is_noise_or_empty,
+                is_backchannel=is_backchannel,
+            )
+            return {"status": "ok", "room": room_name, "spawned": spawned}
+    return {"status": "ok", "event": event_type}
 
 @app.websocket("/ws/call")
 async def call_websocket(websocket: WebSocket):

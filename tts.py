@@ -93,6 +93,25 @@ def synthesize_wav_base64(text: str) -> str:
         print(f"[TTS Error]: {e}", flush=True)
         return ""
 
+def wav_base64_to_pcm_24k(b64_wav: str) -> np.ndarray:
+    """Converts a base64-encoded 24kHz WAV string into a 1D int16 NumPy array for LiveKit AudioSource."""
+    if not b64_wav:
+        return np.array([], dtype=np.int16)
+    try:
+        raw_bytes = base64.b64decode(b64_wav)
+        pcm_int16, _ = sf.read(io.BytesIO(raw_bytes), dtype="int16")
+        if pcm_int16.ndim > 1:
+            pcm_int16 = pcm_int16[:, 0]
+        return np.ascontiguousarray(pcm_int16, dtype=np.int16)
+    except Exception as e:
+        print(f"[TTS PCM Decode Error]: {e}", flush=True)
+        return np.array([], dtype=np.int16)
+
+def synthesize_pcm_24k(text: str) -> np.ndarray:
+    """Synthesizes (or fetches from _tts_cache) 24kHz mono int16 PCM directly for LiveKit SIP."""
+    b64_wav = synthesize_wav_base64(text)
+    return wav_base64_to_pcm_24k(b64_wav)
+
 # Polite conversational filler and common greeting/closing sentences pre-synthesized at startup for zero-latency playback
 CHECK_FILLERS = []
 BOOK_FILLERS = []

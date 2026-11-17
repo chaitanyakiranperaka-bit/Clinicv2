@@ -1,12 +1,26 @@
 import os
+import re
 from typing import Optional
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 DUBLIN_TZ = ZoneInfo("Europe/Dublin")
 AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "eu-west-1")
 BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "qwen.qwen3-coder-30b-a3b-v1:0")
 GOOGLE_CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID", "chaitanyakiran.peraka@gmail.com")
+
+# LiveKit & VoIPLine SIP Configuration
+LIVEKIT_URL = os.getenv("LIVEKIT_URL", "ws://127.0.0.1:7880")
+LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY", "")
+LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET", "")
+VOIPLINE_PHONE_NUMBER = os.getenv("VOIPLINE_PHONE_NUMBER", "")
+VOIPLINE_SIP_DOMAIN = os.getenv("VOIPLINE_SIP_DOMAIN", "sip.voipline.ie")
 
 def _resolve_service_account_path() -> str:
     env_path = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")
@@ -271,11 +285,29 @@ def generate_calendar_reference(days_ahead: int = 14) -> str:
     return "\n".join(lines)
 
 def normalize_phone(phone: str) -> str:
-    """Normalizes phone number string, handling URL query artifact where '+' was decoded as ' '."""
+    """Normalizes phone number string, handling SIP URIs, Irish national format (08x/01x), and URL '+' decoding."""
     if not phone:
         return ""
     cleaned = phone.strip()
-    return cleaned if cleaned.startswith("+") else "+" + cleaned
+    # Strip SIP URI wrapper if present (e.g. "sip:+353871234567@sip.voipline.ie:5060" or "sip_+353871234567")
+    if cleaned.lower().startswith("sip:"):
+        cleaned = cleaned[4:]
+    elif cleaned.lower().startswith("sip_"):
+        cleaned = cleaned[4:]
+    if "@" in cleaned:
+        cleaned = cleaned.split("@", 1)[0]
+    cleaned = re.sub(r"[\s\-()]", "", cleaned)
+    if not cleaned:
+        return ""
+    # Convert 00353... international prefix to +353...
+    if cleaned.startswith("00"):
+        cleaned = "+" + cleaned[2:]
+    # Convert Irish national mobile/landline format (e.g. 0871234567 or 012345678) to +353...
+    elif cleaned.startswith("0") and len(cleaned) in (9, 10) and cleaned[1:].isdigit():
+        cleaned = "+353" + cleaned[1:]
+    elif not cleaned.startswith("+"):
+        cleaned = "+" + cleaned
+    return cleaned
 
 def get_known_patient(phone: str) -> Optional[dict]:
     """Retrieves patient profile matching phone number regardless of leading '+' or space."""
