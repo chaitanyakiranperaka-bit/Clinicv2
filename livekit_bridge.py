@@ -270,6 +270,18 @@ async def run_sip_room_session(
             # Play filler in background serialized via audio_out_lock while Google Calendar API runs
             asyncio.create_task(play_filler_b64(filler_b64, filler_text))
 
+    async def handle_tool_log(msg: str):
+        print(f"[SIP Tool Log ({caller_phone})]: {msg}", flush=True)
+
+    async def handle_booking(b: dict):
+        print(f"[SIP Booking Created ({caller_phone})]: {b}", flush=True)
+
+    async def handle_emergency(cat: str):
+        print(f"[SIP Emergency Alert ({caller_phone})]: {cat}", flush=True)
+
+    async def handle_tool_result(tool_name: str, tool_input: dict, tool_result: dict):
+        pass
+
     async def process_user_turn(audio_np: np.ndarray):
         nonlocal is_processing_turn, current_turn_task, unspoken_sentences, current_speaking_sentence, filler_sent_this_turn
         if len(audio_np) < 4000:
@@ -317,10 +329,11 @@ async def run_sip_room_session(
                     messages,
                     system_prompt,
                     caller_phone,
-                    on_tool_log=lambda msg: print(f"[SIP Tool Log ({caller_phone})]: {msg}", flush=True),
-                    on_booking=lambda b: print(f"[SIP Booking Created ({caller_phone})]: {b}", flush=True),
-                    on_emergency=lambda cat: print(f"[SIP Emergency Alert ({caller_phone})]: {cat}", flush=True),
+                    on_tool_log=handle_tool_log,
+                    on_booking=handle_booking,
+                    on_emergency=handle_emergency,
                     on_tool_start=handle_tool_start,
+                    on_tool_result=handle_tool_result,
                 )
                 if reply_text and not my_task.cancelled():
                     await speak_text(reply_text)
