@@ -474,7 +474,10 @@ async def run_sip_room_session(
     try:
         await room.connect(LIVEKIT_URL, token)
         track = rtc.LocalAudioTrack.create_audio_track("deirdre-voice", audio_source)
-        options = rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE)
+        try:
+            options = rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE, dtx=False)
+        except TypeError:
+            options = rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE)
         await room.local_participant.publish_track(track, options)
 
         for participant in room.remote_participants.values():

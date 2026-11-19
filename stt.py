@@ -12,11 +12,9 @@ print(f"[INIT STT] Loading Faster-Whisper (small.en | device={device} compute_ty
 stt_model = WhisperModel("small.en", device=device, compute_type=compute_type, cpu_threads=threads)
 stt_lock = threading.Lock()
 
-CLINIC_INITIAL_PROMPT = (
-    "Star Dental and GP Clinic, Clonsilla, Dublin. "
-    "Deirdre, can I book an appointment with Dr. Yousuf, Dentist Shailaja, or Nurse Kelly? "
-    "Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, morning, afternoon."
-)
+# Hotwords boost recognition of proper names & clinic terms without feeding a full sentence
+# into Whisper's decoder prefix (which would cause it to auto-complete "doctor" -> "Dr. Yousuf").
+CLINIC_HOTWORDS = "Deirdre Clonsilla Yousuf Shailaja Kelly appointment doctor dentist nurse"
 
 def transcribe(audio_np: np.ndarray) -> str:
     with stt_lock:
@@ -24,7 +22,7 @@ def transcribe(audio_np: np.ndarray) -> str:
             audio_np,
             beam_size=1,
             language="en",
-            initial_prompt=CLINIC_INITIAL_PROMPT,
+            hotwords=CLINIC_HOTWORDS,
             condition_on_previous_text=False,
         )
         return " ".join([s.text for s in segments]).strip()

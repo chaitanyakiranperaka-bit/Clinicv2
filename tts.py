@@ -8,7 +8,10 @@ import soundfile as sf
 from kokoro import KPipeline
 
 print("[INIT TTS] Loading Kokoro-82M (bf_isabella) with in-memory LRU audio cache...", flush=True)
-tts_pipeline = KPipeline(lang_code="b")
+try:
+    tts_pipeline = KPipeline(lang_code="b", repo_id="hexgrad/Kokoro-82M")
+except TypeError:
+    tts_pipeline = KPipeline(lang_code="b")
 tts_lock = threading.Lock()
 
 _TTS_CACHE_MAX = 512
@@ -112,36 +115,43 @@ def synthesize_pcm_24k(text: str) -> np.ndarray:
     b64_wav = synthesize_wav_base64(text)
     return wav_base64_to_pcm_24k(b64_wav)
 
-# Polite conversational filler and common greeting/closing sentences pre-synthesized at startup for zero-latency playback
+# Polite conversational filler and common greeting/closing sentences pre-synthesized in background for zero-latency playback
 CHECK_FILLERS = []
 BOOK_FILLERS = []
 _filler_idx = 0
+FILLER_AUDIO_B64 = ""
 
-try:
-    CHECK_FILLERS = [
-        (synthesize_wav_base64("Let me check that for you now, just one moment please."), "Let me check that for you now, just one moment please."),
-        (synthesize_wav_base64("Just one moment please, let me check the schedule for you."), "Just one moment please, let me check the schedule for you.")
-    ]
-    BOOK_FILLERS = [
-        (synthesize_wav_base64("Just one moment please while I confirm that booking for you."), "Just one moment please while I confirm that booking for you.")
-    ]
-    # Pre-warm static greeting and closing sentences into _tts_cache
-    for _warm_sentence in (
-        "Hello, welcome to Star Dental and GP Clinic in Clonsilla.",
-        "You are speaking with Deirdre, the clinic's automated AI receptionist.",
-        "How can I help you today?",
-        "Is there anything else I can help you with today?",
-        "This sounds like an emergency. Please hang up immediately and dial 999 or 112 for an ambulance.",
-    ):
-        synthesize_wav_base64(_warm_sentence)
-except Exception as e:
-    print(f"[WARN] Failed to pre-synthesize filler audio: {e}", flush=True)
+def _prewarm_tts_cache():
+    global CHECK_FILLERS, BOOK_FILLERS, FILLER_AUDIO_B64
+    try:
+        CHECK_FILLERS = [
+            (synthesize_wav_base64("Let me check that for you now, just one moment please."), "Let me check that for you now, just one moment please."),
+            (synthesize_wav_base64("Just one moment please, let me check the schedule for you."), "Just one moment please, let me check the schedule for you.")
+        ]
+        BOOK_FILLERS = [
+            (synthesize_wav_base64("Just one moment please while I confirm that booking for you."), "Just one moment please while I confirm that booking for you.")
+        ]
+        if CHECK_FILLERS and CHECK_FILLERS[0][0]:
+            FILLER_AUDIO_B64 = CHECK_FILLERS[0][0]
+        for _warm_sentence in (
+            "Hello, welcome to Star Dental and GP Clinic in Clonsilla.",
+            "You are speaking with Deirdre, the clinic's automated AI receptionist.",
+            "How can I help you today?",
+            "Is there anything else I can help you with today?",
+            "This sounds like an emergency. Please hang up immediately and dial 999 or 112 for an ambulance.",
+        ):
+            synthesize_wav_base64(_warm_sentence)
+    except Exception as e:
+        print(f"[WARN] Failed to pre-synthesize filler audio: {e}", flush=True)
+
+threading.Thread(target=_prewarm_tts_cache, name="tts_prewarm", daemon=True).start()
 
 def get_check_filler():
     global _filler_idx
     valid = [item for item in CHECK_FILLERS if item[0]]
     if not valid:
-        return "", ""
+        txt = "Let me check that for you now, just one moment please."
+        return synthesize_wav_base64(txt), txt
     item = valid[_filler_idx % len(valid)]
     _filler_idx += 1
     return item
@@ -150,9 +160,8 @@ def get_book_filler():
     global _filler_idx
     valid = [item for item in BOOK_FILLERS if item[0]]
     if not valid:
-        return "", ""
+        txt = "Just one moment please while I confirm that booking for you."
+        return synthesize_wav_base64(txt), txt
     item = valid[_filler_idx % len(valid)]
     _filler_idx += 1
     return item
-
-FILLER_AUDIO_B64 = CHECK_FILLERS[0][0] if (CHECK_FILLERS and CHECK_FILLERS[0][0]) else ""

@@ -2,6 +2,7 @@ import json
 import re
 import time
 import asyncio
+import threading
 from collections import deque
 import numpy as np
 import torch
@@ -40,6 +41,14 @@ thread_pool = ThreadPoolExecutor(max_workers=128, thread_name_prefix="io_worker"
 stt_thread_pool = ThreadPoolExecutor(max_workers=16, thread_name_prefix="stt_worker")
 tts_thread_pool = ThreadPoolExecutor(max_workers=16, thread_name_prefix="tts_worker")
 
+def _background_warm_vad_pool(target_size: int = 32):
+    while len(_vad_pool) < target_size:
+        try:
+            _vad_pool.append(load_silero_vad())
+            time.sleep(0.05)
+        except Exception:
+            break
+
 @app.on_event("startup")
 async def startup_event():
     try:
@@ -48,6 +57,9 @@ async def startup_event():
         print("[INIT EXECUTOR] Set default I/O pool (128), dedicated STT pool (16), and dedicated TTS pool (16).", flush=True)
     except Exception as e:
         print(f"[WARN] Failed to set ThreadPoolExecutor: {e}", flush=True)
+
+    # Lazily warm additional Silero VAD instances in the background without delaying server startup
+    threading.Thread(target=_background_warm_vad_pool, name="vad_prewarm", daemon=True).start()
 
     # Start LiveKit SIP Room Bridge in-process (shares GPU Whisper + Kokoro models)
     if livekit_bridge.is_livekit_configured():
@@ -63,10 +75,10 @@ async def startup_event():
             )
         )
 
-print("[INIT VAD] Loading Silero VAD pool (CPU)...", flush=True)
+print("[INIT VAD] Loading Silero VAD (CPU)...", flush=True)
 global_vad_model = load_silero_vad()
 _vad_pool = deque()
-for _ in range(100):
+for _ in range(3):
     try:
         _vad_pool.append(load_silero_vad())
     except Exception:
